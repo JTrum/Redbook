@@ -1,0 +1,247 @@
+<script setup>
+defineProps({
+  activeItem: {
+    type: String,
+    required: true
+  }
+})
+
+const emit = defineEmits(['change'])
+
+const menuItems = [
+  { id: 'discovery', label: '发现', icon: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' },
+  { id: 'publish', label: '发布', icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z' },
+  { id: 'notification', label: '通知', icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z' }
+]
+</script>
+
+<template>
+  <aside class="sidebar">
+    <div class="logo-area">
+      <h1 class="logo-text">趣生活</h1>
+    </div>
+    
+    <nav class="nav-menu">
+      <a 
+        v-for="item in menuItems" 
+        :key="item.id"
+        href="#" 
+        class="nav-item"
+        :class="{ active: activeItem === item.id }"
+        @click.prevent="emit('change', item.id)"
+      >
+        <div class="icon-wrapper">
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+            <path :d="item.icon" />
+          </svg>
+        </div>
+        <span class="label">{{ item.label }}</span>
+      </a>
+    </nav>
+
+    <div class="login-promo">
+      <button class="login-btn-large">登录</button>
+      <div class="promo-card">
+        <p class="promo-title">马上登录即可</p>
+        <div class="promo-list">
+          <div class="promo-item">
+            <svg class="promo-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91z"/>
+            </svg>
+            <span>刷到更懂你的优质内容</span>
+          </div>
+          <div class="promo-item">
+            <svg class="promo-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M2.2 16.03l.3-3.66L15.65 0l5.85 5.86L9 18.29l-3.66.3c-.63.06-1.15-.46-1.1-.11-.04.42-.04.85-.04 1.28 0 1.1.9 2 2 2h11c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91"/>
+              <path d="M2.191 16.03a.997.997 0 0 1-.03-1.63L15.5 1l5.85 5.85-13.34 13.34h-.01c-.04-.01-.08-.01-.12-.01l-3.37-.28c-.5-.04-.87-.49-.82-.99.04-.42.06-.85.06-1.28 0-.55.45-1 .99-1H9.95l-7.76.6zM2 13h2v9H2z" fill-opacity="0"/>
+              <path d="M12 2C7.03 2 3 6.03 3 11s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zM7 11c0-2.76 2.24-5 5-5s5 2.24 5 5-2.24 5-5 5-5-2.24-5-5zm5-3c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+             </svg>
+            <span>搜索最新种草、拔草信息</span>
+          </div>
+          <div class="promo-item">
+            <svg class="promo-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+            </svg>
+            <span>查看收藏、点赞的笔记</span>
+          </div>
+          <div class="promo-item">
+            <svg class="promo-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+            </svg>
+            <span>与他人更好互动、交流</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="more-menu">
+      <button class="more-btn">
+        <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+        </svg>
+        <span>更多</span>
+      </button>
+    </div>
+  </aside>
+</template>
+
+<style scoped>
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--sidebar-width);
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  z-index: 100;
+}
+
+.logo-area {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  margin-bottom: 8px;
+}
+
+.logo-text {
+  background-color: var(--primary-color);
+  color: var(--white);
+  font-size: 18px;
+  font-weight: 900;
+  padding: 6px 16px;
+  border-radius: var(--radius-full);
+  letter-spacing: 1px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 16px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 16px;
+  transition: all 0.2s ease;
+}
+
+.nav-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.nav-item.active {
+  background-color: #ff24420d; /* very light red */
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.icon-wrapper {
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.more-menu {
+  margin-top: auto;
+  padding-bottom: 24px;
+}
+
+.more-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  border-radius: var(--radius-full);
+}
+
+.more-btn:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.more-btn span {
+  margin-left: 12px;
+}
+
+.login-promo {
+  margin-top: auto;
+  padding: 0 8px 16px;
+}
+
+.login-btn-large {
+  width: 100%;
+  background-color: var(--primary-color);
+  color: white;
+  height: 48px;
+  border-radius: 24px;
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(255, 36, 66, 0.2);
+}
+
+.promo-card {
+  background-color: white;
+  border: 1px solid #f0f0f0;
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.promo-title {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.promo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.promo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.promo-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.more-menu {
+  padding: 0 8px 24px;
+}
+
+.more-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+}
+
+.more-btn:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.more-btn span {
+  margin-left: 12px;
+}
+</style>
