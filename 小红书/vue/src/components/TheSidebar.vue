@@ -1,18 +1,35 @@
 <script setup>
-defineProps({
+import { ref } from 'vue'
+
+const props = defineProps({
   activeItem: {
     type: String,
     required: true
+  },
+  currentUser: {
+    type: Object,
+    default: null
   }
 })
 
-const emit = defineEmits(['change'])
+const emit = defineEmits(['change', 'show-login', 'logout'])
+
+const showMoreMenu = ref(false)
 
 const menuItems = [
   { id: 'discovery', label: '发现', icon: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' },
   { id: 'publish', label: '发布', icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z' },
   { id: 'notification', label: '通知', icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z' }
 ]
+
+const toggleMoreMenu = () => {
+  showMoreMenu.value = !showMoreMenu.value
+}
+
+const handleLogout = () => {
+  showMoreMenu.value = false
+  emit('logout')
+}
 </script>
 
 <template>
@@ -37,10 +54,25 @@ const menuItems = [
         </div>
         <span class="label">{{ item.label }}</span>
       </a>
+      
+      <!-- User profile as nav item when logged in (below 通知) -->
+      <a 
+        v-if="currentUser" 
+        href="#" 
+        class="nav-item user-nav-item"
+        :class="{ active: activeItem === 'profile' }"
+        @click.prevent="emit('change', 'profile')"
+      >
+        <div class="icon-wrapper">
+          <img :src="currentUser.avatar" :alt="currentUser.nickname" class="nav-avatar" />
+        </div>
+        <span class="label">我</span>
+      </a>
     </nav>
 
-    <div class="login-promo">
-      <button class="login-btn-large">登录</button>
+    <!-- Show Login Promo when NOT logged in -->
+    <div v-if="!currentUser" class="login-promo">
+      <button class="login-btn-large" @click="emit('show-login')">登录</button>
       <div class="promo-card">
         <p class="promo-title">马上登录即可</p>
         <div class="promo-list">
@@ -52,8 +84,6 @@ const menuItems = [
           </div>
           <div class="promo-item">
             <svg class="promo-icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.2 16.03l.3-3.66L15.65 0l5.85 5.86L9 18.29l-3.66.3c-.63.06-1.15-.46-1.1-.11-.04.42-.04.85-.04 1.28 0 1.1.9 2 2 2h11c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91"/>
-              <path d="M2.191 16.03a.997.997 0 0 1-.03-1.63L15.5 1l5.85 5.85-13.34 13.34h-.01c-.04-.01-.08-.01-.12-.01l-3.37-.28c-.5-.04-.87-.49-.82-.99.04-.42.06-.85.06-1.28 0-.55.45-1 .99-1H9.95l-7.76.6zM2 13h2v9H2z" fill-opacity="0"/>
               <path d="M12 2C7.03 2 3 6.03 3 11s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zM7 11c0-2.76 2.24-5 5-5s5 2.24 5 5-2.24 5-5 5-5-2.24-5-5zm5-3c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
              </svg>
             <span>搜索最新种草、拔草信息</span>
@@ -75,13 +105,22 @@ const menuItems = [
     </div>
     
     <div class="more-menu">
-      <button class="more-btn">
+      <button class="more-btn" @click="toggleMoreMenu">
         <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
           <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
         </svg>
         <span>更多</span>
       </button>
+      
+      <!-- Dropdown menu -->
+      <div v-if="showMoreMenu" class="more-dropdown">
+        <a href="#" class="dropdown-item">设置</a>
+        <a v-if="currentUser" href="#" class="dropdown-item" @click.prevent="handleLogout">退出登录</a>
+      </div>
     </div>
+    
+    <!-- Click outside to close -->
+    <div v-if="showMoreMenu" class="overlay" @click="showMoreMenu = false"></div>
   </aside>
 </template>
 
@@ -244,4 +283,119 @@ const menuItems = [
 .more-btn span {
   margin-left: 12px;
 }
+
+/* User Profile Area (when logged in) */
+.user-profile-area {
+  margin-top: auto;
+  padding: 0 8px 16px;
+}
+
+.user-info-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #fff5f6 0%, #fff 100%);
+  border-radius: var(--radius-lg);
+  border: 1px solid #ffe5e8;
+  margin-bottom: 12px;
+}
+
+.user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #ff2442;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.user-nickname {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-id {
+  font-size: 12px;
+  color: #888;
+}
+
+.logout-btn {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
+  font-size: 14px;
+  color: #666;
+  background: white;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+/* Nav avatar for "我" item */
+.nav-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.user-nav-item.active .nav-avatar {
+  border: 2px solid var(--primary-color);
+}
+
+/* More menu dropdown */
+.more-menu {
+  position: relative;
+}
+
+.more-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  right: 8px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  padding: 8px 0;
+  margin-bottom: 8px;
+  z-index: 200;
+}
+
+.dropdown-item {
+  display: block;
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.dropdown-item:hover {
+  background: #f5f5f5;
+}
+
+/* Overlay to close dropdown when clicking outside */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 150;
+}
 </style>
+
+

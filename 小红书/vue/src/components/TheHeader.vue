@@ -1,9 +1,15 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 
-const isLoggedIn = ref(false)
+const props = defineProps({
+  currentUser: {
+    type: Object,
+    default: null
+  }
+})
+
 const placeholderText = computed(() => {
-  return isLoggedIn.value ? '搜索小红书' : '登录探索更多内容'
+  return props.currentUser ? '搜索趣生活' : '登录探索更多内容'
 })
 </script>
 
@@ -21,6 +27,8 @@ const placeholderText = computed(() => {
     </div>
     
     <div class="right-actions">
+      <a href="#" class="action-link">创作中心</a>
+      <a href="#" class="action-link">业务合作</a>
     </div>
   </header>
 </template>

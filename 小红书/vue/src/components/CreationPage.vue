@@ -1,66 +1,419 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, defineProps } from 'vue'
 
-// Removed internal navigation logic as we now rely on the global sidebar
+const props = defineProps({
+  currentUser: {
+    type: Object,
+    default: null
+  }
+})
+
+const activeTab = ref('video') // 'video', 'image', 'article'
+const videoFile = ref(null)
+const videoUrl = ref('')
+const coverUrl = ref('')
+const videoInfo = ref(null)
+const title = ref('')
+const content = ref('')
+const publishType = ref('immediate') // 'immediate' or 'scheduled'
+const scheduledTime = ref('')
+const isUploading = ref(false)
+const showSettings = ref(false)
+
+const fileInputRef = ref(null)
+const coverInputRef = ref(null)
+const coverSource = ref('auto') // 'auto' or 'manual'
+const manualCoverUrl = ref('')
+
+const formatFileSize = (bytes) => {
+  if (bytes < 1024 * 1024) {
+    return (bytes / 1024).toFixed(2) + ' KB'
+  }
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
+}
+
+const formatDuration = (seconds) => {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}min ${secs}s`
+}
+
+const handleFileSelect = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  
+  processVideoFile(file)
+}
+
+const handleDrop = (event) => {
+  event.preventDefault()
+  const file = event.dataTransfer.files[0]
+  if (file && file.type.startsWith('video/')) {
+    processVideoFile(file)
+  }
+}
+
+const handleDragOver = (event) => {
+  event.preventDefault()
+}
+
+const processVideoFile = (file) => {
+  isUploading.value = true
+  videoFile.value = file
+  
+  // Create video URL for preview
+  videoUrl.value = URL.createObjectURL(file)
+  
+  // Create video element to extract info and cover
+  const video = document.createElement('video')
+  video.preload = 'metadata'
+  video.src = videoUrl.value
+  
+  video.onloadedmetadata = () => {
+    videoInfo.value = {
+      name: file.name,
+      size: formatFileSize(file.size),
+      duration: formatDuration(video.duration),
+      width: video.videoWidth,
+      height: video.videoHeight
+    }
+    
+    // Seek to 1 second to get a good cover frame
+    video.currentTime = Math.min(1, video.duration * 0.1)
+  }
+  
+  video.onseeked = () => {
+    // Extract cover from video frame
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    coverUrl.value = canvas.toDataURL('image/jpeg', 0.8)
+    isUploading.value = false
+  }
+  
+  video.onerror = () => {
+    console.error('Error loading video')
+    isUploading.value = false
+  }
+}
+
+const triggerFileInput = () => {
+  fileInputRef.value?.click()
+}
+
+const replaceVideo = () => {
+  videoFile.value = null
+  videoUrl.value = ''
+  coverUrl.value = ''
+  manualCoverUrl.value = ''
+  coverSource.value = 'auto'
+  videoInfo.value = null
+  triggerFileInput()
+}
+
+const triggerCoverInput = () => {
+  coverInputRef.value?.click()
+}
+
+const handleCoverUpload = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    manualCoverUrl.value = e.target.result
+    coverSource.value = 'manual'
+  }
+  reader.readAsDataURL(file)
+}
+
+const selectAutoCover = () => {
+  coverSource.value = 'auto'
+}
+
+const selectManualCover = () => {
+  if (manualCoverUrl.value) {
+    coverSource.value = 'manual'
+  } else {
+    triggerCoverInput()
+  }
+}
+
+// Get the active cover URL based on selection
+const activeCoverUrl = computed(() => {
+  return coverSource.value === 'manual' && manualCoverUrl.value 
+    ? manualCoverUrl.value 
+    : coverUrl.value
+})
+
+const handlePublish = async () => {
+  if (!videoFile.value || !title.value.trim()) {
+    alert('请上传视频并填写标题')
+    return
+  }
+  
+  try {
+    // 1. Upload video file
+    const videoFormData = new FormData()
+    videoFormData.append('file', videoFile.value)
+    
+    const uploadRes = await fetch('http://localhost:3000/posts/upload', {
+      method: 'POST',
+      body: videoFormData
+    })
+    const uploadData = await uploadRes.json()
+    
+    // 2. Upload cover image (convert dataURL to blob)
+    let coverImageUrl = ''
+    const coverToUpload = coverSource.value === 'manual' && manualCoverUrl.value 
+      ? manualCoverUrl.value 
+      : coverUrl.value
+    
+    if (coverToUpload) {
+      const coverBlob = await fetch(coverToUpload).then(r => r.blob())
+      const coverFormData = new FormData()
+      coverFormData.append('file', coverBlob, 'cover.jpg')
+      
+      const coverRes = await fetch('http://localhost:3000/posts/upload', {
+        method: 'POST',
+        body: coverFormData
+      })
+      const coverData = await coverRes.json()
+      coverImageUrl = coverData.url
+    }
+    
+    // 3. Create post with video and cover URLs
+    const postRes = await fetch('http://localhost:3000/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: title.value,
+        type: 'video',
+        url: uploadData.url,
+        cover_url: coverImageUrl,
+        author_id: props.currentUser?.id || 0
+      })
+    })
+    
+    if (postRes.ok) {
+      alert('发布成功！')
+      // Reset form
+      videoFile.value = null
+      videoUrl.value = ''
+      coverUrl.value = ''
+      videoInfo.value = null
+      title.value = ''
+      content.value = ''
+    }
+  } catch (error) {
+    console.error('Publish error:', error)
+    alert('发布失败，请重试')
+  }
+}
+
+
+const canPublish = computed(() => {
+  return videoFile.value && title.value.trim().length > 0
+})
 </script>
 
 <template>
   <div class="creation-container">
-    <header class="creation-header">
-      <div class="header-left">
-        <!-- Text removed as requested -->
-      </div>
-      <div class="header-right">
-        <div class="user-profile">
-          <img src="https://picsum.photos/32/32" alt="Avatar" class="avatar" />
-          <span class="username">嘉伟</span>
-        </div>
-      </div>
-    </header>
-
+    <!-- Hidden file inputs -->
+    <input 
+      ref="fileInputRef"
+      type="file" 
+      accept="video/*" 
+      @change="handleFileSelect" 
+      style="display: none"
+    />
+    <input 
+      ref="coverInputRef"
+      type="file" 
+      accept="image/*" 
+      @change="handleCoverUpload" 
+      style="display: none"
+    />
+    
     <div class="main-body">
-      <!-- Internal Sidebar removed -->
-
       <main class="content-area">
+        <!-- Tabs -->
         <div class="tabs">
-          <span class="tab active">上传视频</span>
-          <span class="tab">上传图文</span>
-          <span class="tab">写长文</span>
+          <span 
+            class="tab" 
+            :class="{ active: activeTab === 'video' }"
+            @click="activeTab = 'video'"
+          >上传视频</span>
+          <span 
+            class="tab" 
+            :class="{ active: activeTab === 'image' }"
+            @click="activeTab = 'image'"
+          >上传图文</span>
+          <span 
+            class="tab" 
+            :class="{ active: activeTab === 'article' }"
+            @click="activeTab = 'article'"
+          >写长文</span>
           <span class="drafts">草稿箱(0)</span>
         </div>
 
-        <div class="warning-banner">
-          <span class="warning-icon">!</span>
-          你还未绑定手机号，前往APP端「设置」-「账户与安全」-「手机号」绑定手机号后才可发布笔记
-          <a href="#" class="link">我了解了</a>
-        </div>
-
-        <div class="upload-area">
-          <div class="upload-content">
-            <div class="cloud-icon">
-              <svg viewBox="0 0 24 24" width="64" height="64" fill="#e0e0e0">
-                <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
-              </svg>
+        <!-- Video Upload Section (Before upload) -->
+        <template v-if="!videoFile">
+          <div 
+            class="upload-area"
+            @drop="handleDrop"
+            @dragover="handleDragOver"
+            @click="triggerFileInput"
+          >
+            <div class="upload-content">
+              <div class="cloud-icon">
+                <svg viewBox="0 0 24 24" width="64" height="64" fill="#e0e0e0">
+                  <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                </svg>
+              </div>
+              <p class="upload-text">拖拽视频到此或点击上传</p>
+              <button class="upload-btn" @click.stop="triggerFileInput">上传视频</button>
             </div>
-            <p class="upload-text">拖拽视频到此或点击上传</p>
-            <button class="upload-btn">上传视频</button>
           </div>
-        </div>
 
-        <div class="specs-grid">
-          <div class="spec-item">
-            <h3>视频大小</h3>
-            <p>支持时长60分钟以内，最大20GB的视频文件</p>
+          <div class="specs-grid">
+            <div class="spec-item">
+              <h3>视频大小</h3>
+              <p>支持时长60分钟以内，最大20GB的视频文件</p>
+            </div>
+            <div class="spec-item">
+              <h3>视频格式</h3>
+              <p>支持常用视频格式，推荐使用mp4、mov</p>
+            </div>
+            <div class="spec-item">
+              <h3>视频分辨率</h3>
+              <p>推荐上传720P（1280*720）及以上视频</p>
+            </div>
           </div>
-          <div class="spec-item">
-            <h3>视频格式</h3>
-            <p>支持常用视频格式，推荐使用mp4、mov</p>
+        </template>
+
+        <!-- Video Edit Section (After upload) -->
+        <template v-else>
+          <div class="edit-form">
+            <!-- Video Info -->
+            <div class="video-info-section">
+              <div class="video-info-header">
+                <span class="file-name">{{ videoInfo?.name }}</span>
+                <button class="replace-btn" @click="replaceVideo">替换视频</button>
+              </div>
+              <div class="video-meta">
+                <span class="success-badge">✓ 上传成功</span>
+                <span>视频大小：{{ videoInfo?.size }}</span>
+                <span>视频时长：{{ videoInfo?.duration }}</span>
+              </div>
+            </div>
+
+            <!-- Cover Section -->
+            <div class="section">
+              <h3 class="section-title">封面设置</h3>
+              <div class="cover-options">
+                <!-- Auto-captured cover -->
+                <div 
+                  class="cover-option" 
+                  :class="{ selected: coverSource === 'auto' }"
+                  @click="selectAutoCover"
+                >
+                  <img v-if="coverUrl" :src="coverUrl" alt="自动截取" class="cover-image" />
+                  <div v-else class="cover-placeholder">截取中...</div>
+                  <span class="cover-label">自动截取</span>
+                  <div v-if="coverSource === 'auto'" class="cover-check">✓</div>
+                </div>
+                
+                <!-- Manual upload cover -->
+                <div 
+                  class="cover-option" 
+                  :class="{ selected: coverSource === 'manual' && manualCoverUrl }"
+                  @click="selectManualCover"
+                >
+                  <img v-if="manualCoverUrl" :src="manualCoverUrl" alt="手动上传" class="cover-image" />
+                  <div v-else class="cover-placeholder upload-hint">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="#999">
+                      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                    </svg>
+                    <span>上传封面</span>
+                  </div>
+                  <span class="cover-label">{{ manualCoverUrl ? '手动上传' : '点击上传' }}</span>
+                  <div v-if="coverSource === 'manual' && manualCoverUrl" class="cover-check">✓</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Title -->
+            <div class="section">
+              <h3 class="section-title">标题 <span class="char-count">{{ title.length }}/20</span></h3>
+              <input 
+                v-model="title"
+                type="text" 
+                class="title-input"
+                placeholder="填写标题会有更多赞哦～"
+                maxlength="20"
+              />
+            </div>
+
+            <!-- Content -->
+            <div class="section">
+              <h3 class="section-title">正文内容</h3>
+              <textarea 
+                v-model="content"
+                class="content-input"
+                placeholder="输入正文描述，真诚有价值的分享予人温暖"
+                rows="4"
+              ></textarea>
+            </div>
+
+            <!-- Settings Toggle -->
+            <div class="section">
+              <button class="settings-toggle" @click="showSettings = !showSettings">
+                更多设置
+                <span :class="{ 'rotate': showSettings }">▼</span>
+              </button>
+              
+              <div v-if="showSettings" class="settings-panel">
+                <div class="setting-row">
+                  <span class="setting-label">发布时间</span>
+                  <div class="publish-options">
+                    <label class="radio-option">
+                      <input type="radio" v-model="publishType" value="immediate" />
+                      <span>立即发布</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" v-model="publishType" value="scheduled" />
+                      <span>定时发布</span>
+                    </label>
+                  </div>
+                </div>
+                
+                <div v-if="publishType === 'scheduled'" class="setting-row">
+                  <span class="setting-label">选择时间</span>
+                  <input 
+                    type="datetime-local" 
+                    v-model="scheduledTime"
+                    class="datetime-input"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Publish Buttons -->
+            <div class="publish-actions">
+              <button 
+                class="publish-btn" 
+                :disabled="!canPublish"
+                @click="handlePublish"
+              >
+                发布
+              </button>
+              <button class="save-draft-btn">暂存离开</button>
+            </div>
           </div>
-          <div class="spec-item">
-            <h3>视频分辨率</h3>
-            <p>推荐上传720P（1280*720）及以上视频，超过1080P的视频用网页端上传画质更清晰哦</p>
-          </div>
-        </div>
+        </template>
       </main>
     </div>
   </div>
@@ -70,56 +423,8 @@ import { ref } from 'vue'
 .creation-container {
   display: flex;
   flex-direction: column;
-  height: 100%; /* Changed from 100vh to 100% to fit container */
+  height: 100%;
   background-color: var(--bg-color);
-}
-
-.creation-header {
-  height: 60px;
-  background-color: white;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-  z-index: 10;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.logo-text {
-  color: var(--primary-color);
-  font-weight: 900;
-  font-size: 20px;
-}
-
-.platform-text {
-  font-size: 16px;
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-}
-
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.avatar {
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
 }
 
 .main-body {
@@ -127,8 +432,6 @@ import { ref } from 'vue'
   flex: 1;
   overflow: hidden;
 }
-
-/* Sidebar styles removed */
 
 .content-area {
   flex: 1;
@@ -141,12 +444,11 @@ import { ref } from 'vue'
   display: flex;
   align-items: center;
   gap: 32px;
-  margin-bottom: 20px;
-  padding: 0 8px;
   background: white;
   padding: 16px 24px;
   border-radius: 4px 4px 0 0;
   border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 20px;
 }
 
 .tab {
@@ -166,41 +468,9 @@ import { ref } from 'vue'
   margin-left: auto;
   font-size: 14px;
   color: var(--text-secondary);
-  display: flex;
-  align-items: center;
 }
 
-.warning-banner {
-  background-color: #fffbf0;
-  border: 1px solid #ffe58f;
-  padding: 12px 16px;
-  font-size: 13px;
-  color: #595959;
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
-  margin-bottom: 20px;
-}
-
-.warning-icon {
-  background: #faad14;
-  color: white;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 8px;
-  font-size: 11px;
-}
-
-.link {
-  color: #1890ff;
-  margin-left: 8px;
-  text-decoration: none;
-}
-
+/* Upload Area */
 .upload-area {
   background-color: white;
   border-radius: 4px;
@@ -208,8 +478,14 @@ import { ref } from 'vue'
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px dashed #d9d9d9;
+  border: 2px dashed #d9d9d9;
   margin-bottom: 32px;
+  cursor: pointer;
+  transition: border-color 0.3s;
+}
+
+.upload-area:hover {
+  border-color: var(--primary-color);
 }
 
 .upload-content {
@@ -224,9 +500,8 @@ import { ref } from 'vue'
 .upload-btn {
   background-color: var(--primary-color);
   color: white;
-  padding: 8px 32px;
+  padding: 10px 32px;
   border-radius: 4px;
-  border: none;
   font-size: 14px;
   cursor: pointer;
 }
@@ -248,4 +523,472 @@ import { ref } from 'vue'
   color: var(--text-secondary);
   line-height: 1.5;
 }
+
+/* Edit Form (Full Width) */
+.edit-form {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 100%;
+}
+
+.video-info-section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.video-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.file-name {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.replace-btn {
+  color: var(--primary-color);
+  font-size: 14px;
+}
+
+.video-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.success-badge {
+  color: #52c41a;
+}
+
+.section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.char-count {
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.cover-options {
+  display: flex;
+  gap: 16px;
+}
+
+.cover-option {
+  position: relative;
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.cover-option.selected {
+  box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.cover-image {
+  width: 120px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  display: block;
+}
+
+.cover-placeholder {
+  width: 120px;
+  height: 160px;
+  background: #f5f5f5;
+  border: 1px dashed #d0d0d0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 13px;
+}
+
+.cover-placeholder.upload-hint {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cover-label {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.6);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cover-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.title-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.title-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.content-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.content-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.settings-toggle span {
+  font-size: 10px;
+  transition: transform 0.3s;
+}
+
+.settings-toggle span.rotate {
+  transform: rotate(180deg);
+}
+
+.settings-panel {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.setting-row:last-child {
+  margin-bottom: 0;
+}
+
+.setting-label {
+  width: 80px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.publish-options {
+  display: flex;
+  gap: 24px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.datetime-input {
+  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.publish-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.publish-btn {
+  background: var(--primary-color);
+  color: white;
+  padding: 12px 48px;
+  border-radius: 24px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.publish-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.save-draft-btn {
+  padding: 12px 32px;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* Preview Section */
+.preview-section {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.preview-tabs {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.preview-tab {
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding-bottom: 4px;
+}
+
+.preview-tab.active {
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--primary-color);
+}
+
+.phone-frame {
+  background: #1a1a1a;
+  border-radius: 32px;
+  padding: 12px;
+  position: relative;
+}
+
+.phone-notch {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 20px;
+  color: white;
+  font-size: 12px;
+}
+
+/* New Phone Preview Styles */
+.phone-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  color: white;
+  font-size: 12px;
+}
+
+.status-icons {
+  display: flex;
+  gap: 4px;
+  font-size: 10px;
+}
+
+.phone-screen {
+  position: relative;
+  background: #1a1a1a;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  color: white;
+  font-size: 24px;
+  z-index: 10;
+}
+
+.nav-back {
+  cursor: pointer;
+  font-weight: 300;
+}
+
+.nav-search {
+  font-size: 18px;
+}
+
+.phone-video-container {
+  background: #000;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.phone-content-area {
+  flex: 1;
+  background: white;
+  padding: 16px;
+  border-radius: 0;
+}
+
+.phone-post-content {
+  margin-bottom: 16px;
+}
+
+.phone-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.phone-text {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+}
+
+.phone-user-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.phone-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.phone-user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-username {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.phone-meta {
+  font-size: 11px;
+  color: #999;
+}
+
+.phone-follow-btn {
+  background: var(--primary-color);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 16px;
+  font-size: 12px;
+}
+
+/* Right side action bar */
+.phone-side-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  z-index: 10;
+}
+
+.side-action-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+  font-size: 10px;
+  gap: 4px;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.side-action-label {
+  font-size: 11px;
+  background: rgba(255,255,255,0.2);
+  padding: 4px 8px;
+  border-radius: 12px;
+}
+
+/* Bottom comment bar */
+.phone-comment-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #1a1a1a;
+  border-radius: 0 0 20px 20px;
+}
+
+.phone-comment-input {
+  flex: 1;
+  background: #333;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 16px;
+  color: #999;
+  font-size: 13px;
+}
+
+.comment-icons {
+  color: white;
+  font-size: 18px;
+}
 </style>
+
