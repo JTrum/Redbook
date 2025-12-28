@@ -1,58 +1,137 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import TheSidebar from './components/TheSidebar.vue'
 import TheHeader from './components/TheHeader.vue'
 import CategoryTabs from './components/CategoryTabs.vue'
 import MasonryGrid from './components/MasonryGrid.vue'
 import CreationPage from './components/CreationPage.vue'
 import NotificationPage from './components/NotificationPage.vue'
+import AuthModal from './components/AuthModal.vue'
+import ProfilePage from './components/ProfilePage.vue'
+import PostDetailModal from './components/PostDetailModal.vue'
 
 const currentView = ref('discovery')
+const showAuthModal = ref(false)
+const currentUser = ref(null)
+const pendingNavigation = ref(null) // Store intended navigation when login is required
+const selectedPost = ref(null)
+const showPostDetail = ref(false)
+
+const handleOpenDetail = (post) => {
+  selectedPost.value = post
+  showPostDetail.value = true
+}
+
+const handleCloseDetail = () => {
+  showPostDetail.value = false
+  selectedPost.value = null
+}
 
 const handleNavChange = (id) => {
+  // Check if trying to publish without login
+  if (id === 'publish' && !currentUser.value) {
+    pendingNavigation.value = 'publish'
+    showAuthModal.value = true
+    return
+  }
+  
   currentView.value = id
+  // Re-fetch posts when navigating to discovery
+  if (id === 'discovery') {
+    fetchPosts()
+  }
 }
 
-// Mock Data
-const generatePosts = (count) => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: i,
-    title: [
-      '领导说，放心夹 没人跟你抢。。。', 
-      '如你们所愿，朋友们', 
-      '登场率几乎为0的五款皮肤', 
-      '❄️💋', 
-      '可以给我起一个中文名吗？谢谢！',
-      '从孙吧过来的来感受xhs的威力', 
-      '中国为什么', 
-      '小红书让我重生了'
-    ][i % 8],
-    image: [
-      'https://picsum.photos/400/600?random=' + i,
-      'https://picsum.photos/400/500?random=' + i,
-      'https://picsum.photos/400/400?random=' + i,
-      'https://picsum.photos/400/700?random=' + i
-    ][i % 4],
-    type: i % 3 === 0 ? 'video' : 'image',
-    user: ['周思语', 'Kirill K哥', '王者荣耀边路', 'Ellen', 'erodimx', 'Test Yoke'][i % 6],
-    avatar: 'https://i.pravatar.cc/150?u=' + i,
-    likes: Math.floor(Math.random() * 50000)
-  }))
+const handleShowLogin = () => {
+  showAuthModal.value = true
 }
 
-const posts = ref(generatePosts(20))
+const handleLoginSuccess = (user) => {
+  currentUser.value = user
+  showAuthModal.value = false
+  
+  // Navigate to pending page if there was one
+  if (pendingNavigation.value) {
+    currentView.value = pendingNavigation.value
+    pendingNavigation.value = null
+  }
+}
+
+const handleLogout = () => {
+  currentUser.value = null
+  localStorage.removeItem('user')
+  currentView.value = 'discovery'
+}
+
+const handleUpdateUser = (updatedUser) => {
+  currentUser.value = updatedUser
+  localStorage.setItem('user', JSON.stringify(updatedUser))
+}
+
+const handleBackFromProfile = () => {
+  currentView.value = 'discovery'
+}
+
+// Check if user is already logged in (from localStorage)
+onMounted(() => {
+  const savedUser = localStorage.getItem('user')
+  if (savedUser) {
+    try {
+      currentUser.value = JSON.parse(savedUser)
+    } catch (e) {
+      localStorage.removeItem('user')
+    }
+  }
+})
+
+const posts = ref([])
+
+const fetchPosts = async () => {
+  try {
+    const response = await fetch('http://localhost:3000/posts')
+    const data = await response.json()
+    
+    // Map backend data to frontend structure
+    posts.value = data.map(post => ({
+      id: post.id,
+      title: post.title,
+      description: post.description || '',
+      // For videos, use cover_url if available, otherwise use a placeholder
+      image: post.type === 'video' 
+        ? (post.cover_url || 'http://localhost:3000/uploads/video_cover_placeholder.svg') 
+        : post.url, 
+      videoUrl: post.type === 'video' ? post.url : null,
+      type: post.type,
+      user: post.author,
+      avatar: post.author_avatar,
+      likes: Math.floor(Math.random() * 1000), // Mock likes for now
+      createdAt: post.created_at
+    }))
+  } catch (error) {
+    console.error('Failed to fetch posts:', error)
+  }
+}
+
+fetchPosts()
+
 </script>
 
 <template>
   <div class="app-container">
-    <TheSidebar :active-item="currentView" @change="handleNavChange" />
+    <TheSidebar 
+      :active-item="currentView" 
+      :current-user="currentUser"
+      @change="handleNavChange" 
+      @show-login="handleShowLogin"
+      @logout="handleLogout"
+    />
     <div class="main-content">
-      <TheHeader v-if="currentView !== 'publish'" />
+      <TheHeader v-if="currentView !== 'publish' && currentView !== 'profile'" :current-user="currentUser" />
       
       <template v-if="currentView === 'discovery'">
         <CategoryTabs />
         <main class="content-scroll-area">
-          <MasonryGrid :items="posts" />
+          <MasonryGrid :items="posts" @open-detail="handleOpenDetail" />
         </main>
       </template>
 
@@ -60,8 +139,30 @@ const posts = ref(generatePosts(20))
         <NotificationPage />
       </template>
       
-      <CreationPage v-else-if="currentView === 'publish'" />
+      <template v-else-if="currentView === 'profile'">
+        <ProfilePage 
+          :current-user="currentUser"
+          @update-user="handleUpdateUser"
+          @back="handleBackFromProfile"
+        />
+      </template>
+      
+      <CreationPage v-else-if="currentView === 'publish'" :current-user="currentUser" />
     </div>
+    
+    <!-- Auth Modal -->
+    <AuthModal 
+      v-if="showAuthModal" 
+      @close="showAuthModal = false; pendingNavigation = null"
+      @login-success="handleLoginSuccess"
+    />
+    
+    <!-- Post Detail Modal -->
+    <PostDetailModal 
+      v-if="showPostDetail && selectedPost" 
+      :post="selectedPost" 
+      @close="handleCloseDetail"
+    />
   </div>
 </template>
 

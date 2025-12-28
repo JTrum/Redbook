@@ -63,6 +63,7 @@ onUnmounted(() => {
         v-for="item in col" 
         :key="item.id" 
         :post="item" 
+        @open-detail="$emit('open-detail', $event)"
       />
     </div>
   </div>
@@ -71,14 +72,14 @@ onUnmounted(() => {
 <style scoped>
 .masonry-grid {
   display: flex;
-  gap: 20px;
-  width: 100%;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: flex-start;
 }
 
 .masonry-column {
-  flex: 1;
+  width: 210px;
   display: flex;
   flex-direction: column;
-  min-width: 0; /* Important for flex child text overflow */
 }
 </style>
