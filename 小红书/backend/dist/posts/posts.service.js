@@ -37,6 +37,42 @@ let PostsService = class PostsService {
             };
         });
     }
+    getCommentsByPostId(postId) {
+        return database_1.database.getCommentsByPostId(postId);
+    }
+    createComment(postId, userId, content) {
+        return database_1.database.createComment(postId, userId, content);
+    }
+    deleteComment(commentId, userId) {
+        return database_1.database.deleteComment(commentId, userId);
+    }
+    likePost(postId, userId) {
+        return database_1.database.likePost(postId, userId);
+    }
+    unlikePost(postId, userId) {
+        return database_1.database.unlikePost(postId, userId);
+    }
+    isLikedByUser(postId, userId) {
+        return database_1.database.isLikedByUser(postId, userId);
+    }
+    getLikeCount(postId) {
+        return database_1.database.getLikeCount(postId);
+    }
+    collectPost(postId, userId) {
+        return database_1.database.collectPost(postId, userId);
+    }
+    uncollectPost(postId, userId) {
+        return database_1.database.uncollectPost(postId, userId);
+    }
+    isCollectedByUser(postId, userId) {
+        return database_1.database.isCollectedByUser(postId, userId);
+    }
+    getCollectionCount(postId) {
+        return database_1.database.getCollectionCount(postId);
+    }
+    getCollectionsByUserId(userId) {
+        return database_1.database.getCollectionsByUserId(userId);
+    }
 };
 exports.PostsService = PostsService;
 exports.PostsService = PostsService = __decorate([

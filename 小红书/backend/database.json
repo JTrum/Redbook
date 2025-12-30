@@ -36,6 +36,15 @@
       "gender": "男",
       "created_at": "2025-12-26T14:43:35.252Z",
       "bio": "2018 澳洲厨师团体赛冠军/2019 澳洲厨师团体赛冠军/2019 太平洋杯厨师个人赛金牌\n视频里用到的，我橱窗里都有\n邮箱:leelinda@live.cn"
+    },
+    {
+      "id": 5,
+      "username": "cyh",
+      "password": "123456",
+      "nickname": "cyh",
+      "avatar": "https://i.pravatar.cc/150?u=cyh",
+      "gender": "保密",
+      "created_at": "2025-12-29T14:25:51.986Z"
     }
   ],
   "posts": [
@@ -70,6 +79,53 @@
       "description": "培根 150克\n蘑菇 150克\n洋葱 70克\n大蒜 20克\n白葡萄酒 80克\n淡奶油 200克\n盐胡椒适量(最后加)\n可冷藏保存4天\n或冷冻保存3个月"
     }
   ],
-  "userIdCounter": 5,
-  "postIdCounter": 4
+  "comments": [
+    {
+      "id": 1,
+      "post_id": 1,
+      "user_id": 5,
+      "content": "好吃",
+      "created_at": "2025-12-29T15:25:25.328Z"
+    },
+    {
+      "id": 2,
+      "post_id": 2,
+      "user_id": 5,
+      "content": "666",
+      "created_at": "2025-12-29T15:25:58.053Z"
+    }
+  ],
+  "likes": [
+    {
+      "id": 1,
+      "post_id": 1,
+      "user_id": 5,
+      "created_at": "2025-12-29T15:00:15.005Z"
+    },
+    {
+      "id": 2,
+      "post_id": 2,
+      "user_id": 5,
+      "created_at": "2025-12-29T15:25:52.880Z"
+    }
+  ],
+  "collections": [
+    {
+      "id": 1,
+      "post_id": 1,
+      "user_id": 5,
+      "created_at": "2025-12-29T15:00:16.093Z"
+    },
+    {
+      "id": 2,
+      "post_id": 2,
+      "user_id": 5,
+      "created_at": "2025-12-29T15:25:53.359Z"
+    }
+  ],
+  "userIdCounter": 6,
+  "postIdCounter": 4,
+  "commentIdCounter": 3,
+  "likeIdCounter": 3,
+  "collectionIdCounter": 3
 }

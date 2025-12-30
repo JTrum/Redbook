@@ -1,10 +1,9 @@
-import { Controller, Get, Post, UploadedFile, UseInterceptors, Body } from '@nestjs/common';
+import { Controller, Get, Post, UploadedFile, UseInterceptors, Body, Param, Delete, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PostsService } from './posts.service';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 
-// Configure Multer to save files to './uploads' directory
 const storage = diskStorage({
     destination: './uploads',
     filename: (req, file, cb) => {
@@ -20,8 +19,6 @@ export class PostsController {
     @Post('upload')
     @UseInterceptors(FileInterceptor('file', { storage }))
     uploadFile(@UploadedFile() file: Express.Multer.File) {
-        // This is where "MinIO/OSS" logic would happen by proxy. 
-        // Since we use local storage, we just return the local static URL.
         return {
             url: `http://localhost:3000/uploads/${file.filename}`,
         };
@@ -35,5 +32,61 @@ export class PostsController {
     @Get()
     findAll() {
         return this.postsService.findAll();
+    }
+
+    @Get(':postId/comments')
+    getComments(@Param('postId') postId: string) {
+        return this.postsService.getCommentsByPostId(Number(postId));
+    }
+
+    @Post(':postId/comments')
+    createComment(@Param('postId') postId: string, @Body() body: { userId: number; content: string }) {
+        return this.postsService.createComment(Number(postId), body.userId, body.content);
+    }
+
+    @Delete('comments/:commentId')
+    deleteComment(@Param('commentId') commentId: string, @Body() body: { userId: number }) {
+        return this.postsService.deleteComment(Number(commentId), body.userId);
+    }
+
+    @Post(':postId/like')
+    likePost(@Param('postId') postId: string, @Body() body: { userId: number }) {
+        return this.postsService.likePost(Number(postId), body.userId);
+    }
+
+    @Post(':postId/unlike')
+    unlikePost(@Param('postId') postId: string, @Body() body: { userId: number }) {
+        return this.postsService.unlikePost(Number(postId), body.userId);
+    }
+
+    @Get(':postId/like/status')
+    getLikeStatus(@Param('postId') postId: string, @Query('userId') userId: string) {
+        return {
+            liked: this.postsService.isLikedByUser(Number(postId), Number(userId)),
+            likeCount: this.postsService.getLikeCount(Number(postId))
+        };
+    }
+
+    @Post(':postId/collect')
+    collectPost(@Param('postId') postId: string, @Body() body: { userId: number }) {
+        return this.postsService.collectPost(Number(postId), body.userId);
+    }
+
+    @Post(':postId/uncollect')
+    uncollectPost(@Param('postId') postId: string, @Body() body: { userId: number }) {
+        return this.postsService.uncollectPost(Number(postId), body.userId);
+    }
+
+    @Get(':postId/collect/status')
+    getCollectStatus(@Param('postId') postId: string, @Query('userId') userId: string) {
+        return {
+            collected: this.postsService.isCollectedByUser(Number(postId), Number(userId)),
+            collectionCount: this.postsService.getCollectionCount(Number(postId))
+        };
+    }
+
+    @Get('user/:userId/collections')
+    getUserCollections(@Param('userId') userId: string) {
+        return this.postsService.getCollectionsByUserId(Number(userId));
     }
 }

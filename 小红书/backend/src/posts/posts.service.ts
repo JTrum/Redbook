@@ -26,7 +26,6 @@ export class PostsService {
 
     findAll() {
         const posts = database.getAllPosts();
-        // Transform to include author name and avatar
         return posts.map(p => {
             const author = database.findUserById(p.author_id);
             return {
@@ -41,6 +40,54 @@ export class PostsService {
                 author_avatar: author?.avatar || 'https://i.pravatar.cc/150?u=anonymous'
             };
         });
+    }
+
+    getCommentsByPostId(postId: number) {
+        return database.getCommentsByPostId(postId);
+    }
+
+    createComment(postId: number, userId: number, content: string) {
+        return database.createComment(postId, userId, content);
+    }
+
+    deleteComment(commentId: number, userId: number) {
+        return database.deleteComment(commentId, userId);
+    }
+
+    likePost(postId: number, userId: number) {
+        return database.likePost(postId, userId);
+    }
+
+    unlikePost(postId: number, userId: number) {
+        return database.unlikePost(postId, userId);
+    }
+
+    isLikedByUser(postId: number, userId: number) {
+        return database.isLikedByUser(postId, userId);
+    }
+
+    getLikeCount(postId: number) {
+        return database.getLikeCount(postId);
+    }
+
+    collectPost(postId: number, userId: number) {
+        return database.collectPost(postId, userId);
+    }
+
+    uncollectPost(postId: number, userId: number) {
+        return database.uncollectPost(postId, userId);
+    }
+
+    isCollectedByUser(postId: number, userId: number) {
+        return database.isCollectedByUser(postId, userId);
+    }
+
+    getCollectionCount(postId: number) {
+        return database.getCollectionCount(postId);
+    }
+
+    getCollectionsByUserId(userId: number) {
+        return database.getCollectionsByUserId(userId);
     }
 }
 

@@ -1,20 +1,50 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 
 const props = defineProps({
   post: {
     type: Object,
     required: true
+  },
+  currentUser: {
+    type: Object,
+    default: null
   }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'interaction'])
 
 const videoRef = ref(null)
+const commentInputRef = ref(null)
 const isPlaying = ref(false)
+const isLiked = ref(props.post.likeStatus || false)
+const isCollected = ref(props.post.collectionStatus || false)
+const likeCount = ref(props.post.likeCount || props.post.likes || 0)
+const collectCount = ref(props.post.collectionCount || 0)
+const comments = ref([])
+const newComment = ref('')
+const isLoadingComments = ref(false)
 
 const formattedLikes = computed(() => {
-  const num = props.post.likes
+  const num = likeCount.value
+  if (num >= 10000) {
+    return (num / 10000).toFixed(1) + '万'
+  }
+  return num
+})
+
+const formattedCollects = computed(() => {
+  const num = collectCount.value
+  if (num >= 10000) {
+    return (num / 10000).toFixed(1) + '万'
+  }
+  return num
+})
+
+const commentCount = computed(() => comments.value.length)
+
+const formattedCommentCount = computed(() => {
+  const num = commentCount.value
   if (num >= 10000) {
     return (num / 10000).toFixed(1) + '万'
   }
@@ -39,6 +69,163 @@ const handleVideoEnded = () => {
 const closeModal = () => {
   emit('close')
 }
+
+const fetchComments = async () => {
+  if (!props.post.id) return
+  
+  isLoadingComments.value = true
+  try {
+    const response = await fetch(`http://localhost:3000/posts/${props.post.id}/comments`)
+    const data = await response.json()
+    comments.value = data.map(c => ({
+      id: c.id,
+      post_id: c.post_id,
+      user_id: c.user_id,
+      content: c.content,
+      createdAt: c.created_at,
+      user: c.user
+    }))
+  } catch (error) {
+    console.error('Failed to fetch comments:', error)
+  } finally {
+    isLoadingComments.value = false
+  }
+}
+
+const handleLike = async () => {
+  if (!props.currentUser) {
+    alert('请先登录')
+    return
+  }
+  
+  try {
+    if (isLiked.value) {
+      await fetch(`http://localhost:3000/posts/${props.post.id}/unlike`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: props.currentUser.id })
+      })
+      likeCount.value = Math.max(0, likeCount.value - 1)
+    } else {
+      await fetch(`http://localhost:3000/posts/${props.post.id}/like`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: props.currentUser.id })
+      })
+      likeCount.value++
+    }
+    isLiked.value = !isLiked.value
+    emit('interaction')
+  } catch (error) {
+    console.error('Failed to toggle like:', error)
+  }
+}
+
+const handleCollect = async () => {
+  if (!props.currentUser) {
+    alert('请先登录')
+    return
+  }
+  
+  try {
+    if (isCollected.value) {
+      await fetch(`http://localhost:3000/posts/${props.post.id}/uncollect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: props.currentUser.id })
+      })
+      collectCount.value = Math.max(0, collectCount.value - 1)
+    } else {
+      await fetch(`http://localhost:3000/posts/${props.post.id}/collect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: props.currentUser.id })
+      })
+      collectCount.value++
+    }
+    isCollected.value = !isCollected.value
+    emit('interaction')
+  } catch (error) {
+    console.error('Failed to toggle collect:', error)
+  }
+}
+
+const handleSubmitComment = async () => {
+  if (!props.currentUser) {
+    alert('请先登录')
+    return
+  }
+  
+  const content = newComment.value.trim()
+  if (!content) return
+  
+  try {
+    const response = await fetch(`http://localhost:3000/posts/${props.post.id}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: props.currentUser.id,
+        content: content
+      })
+    })
+    
+    const newC = await response.json()
+    comments.value.unshift({
+      id: newC.id,
+      post_id: newC.post_id,
+      user_id: newC.user_id,
+      content: newC.content,
+      createdAt: newC.created_at,
+      user: newC.user
+    })
+    newComment.value = ''
+    emit('interaction')
+  } catch (error) {
+    console.error('Failed to post comment:', error)
+  }
+}
+
+const handleDeleteComment = async (commentId) => {
+  if (!props.currentUser) return
+  
+  try {
+    await fetch('http://localhost:3000/posts/comments/' + commentId, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: props.currentUser.id })
+    })
+    comments.value = comments.value.filter(c => c.id !== commentId)
+  } catch (error) {
+    console.error('Failed to delete comment:', error)
+  }
+}
+
+const focusCommentInput = () => {
+  if (commentInputRef.value) {
+    commentInputRef.value.focus()
+  }
+}
+
+const formatDate = (dateStr) => {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now - date
+  
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
+  if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
+  
+  return date.toLocaleDateString('zh-CN')
+}
+
+onMounted(() => {
+  fetchComments()
+})
+
+watch(() => props.post.id, () => {
+  fetchComments()
+})
 </script>
 
 <template>
@@ -92,35 +279,70 @@ const closeModal = () => {
         
         <!-- Comments section -->
         <div class="comments-section">
-          <h3 class="comments-title">共 0 条评论</h3>
-          <div class="comments-list">
-            <p class="no-comments">暂无评论，快来发表你的看法吧~</p>
+          <h3 class="comments-title">共 {{ formattedCommentCount }} 条评论</h3>
+          <div v-if="isLoadingComments" class="loading-comments">
+            <p>加载中...</p>
+          </div>
+          <div v-else class="comments-list">
+            <div v-for="comment in comments" :key="comment.id" class="comment-item">
+              <img :src="comment.user.avatar" :alt="comment.user.nickname" class="comment-avatar" />
+              <div class="comment-content">
+                <div class="comment-header">
+                  <span class="comment-username">{{ comment.user.nickname }}</span>
+                  <span class="comment-time">{{ formatDate(comment.createdAt) }}</span>
+                </div>
+                <p class="comment-text">{{ comment.content }}</p>
+                <button 
+                  v-if="currentUser && comment.user_id === currentUser.id" 
+                  @click="handleDeleteComment(comment.id)" 
+                  class="delete-comment-btn"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+            <p v-if="comments.length === 0" class="no-comments">暂无评论，快来发表你的看法吧~</p>
           </div>
         </div>
         
         <!-- Bottom actions -->
         <div class="actions-bar">
           <div class="comment-input-wrapper">
-            <input type="text" placeholder="说点什么..." class="comment-input" />
+            <input 
+              ref="commentInputRef"
+              type="text" 
+              placeholder="说点什么..." 
+              class="comment-input" 
+              v-model="newComment"
+              @keyup.enter="handleSubmitComment"
+            />
           </div>
           <div class="action-buttons">
-            <div class="action-item">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div 
+              class="action-item" 
+              :class="{ active: isLiked }" 
+              @click="handleLike"
+            >
+              <svg viewBox="0 0 24 24" :fill="isLiked ? '#ff2442' : 'none'" :stroke="isLiked ? '#ff2442' : 'currentColor'" stroke-width="2">
                 <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
               </svg>
               <span>{{ formattedLikes }}</span>
             </div>
-            <div class="action-item">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div 
+              class="action-item" 
+              :class="{ active: isCollected }" 
+              @click="handleCollect"
+            >
+              <svg viewBox="0 0 24 24" :fill="isCollected ? '#ff2442' : 'none'" :stroke="isCollected ? '#ff2442' : 'currentColor'" stroke-width="2">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
               </svg>
-              <span>收藏</span>
+              <span>{{ formattedCollects }}</span>
             </div>
-            <div class="action-item">
+            <div class="action-item" @click="focusCommentInput">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
               </svg>
-              <span>0</span>
+              <span>{{ formattedCommentCount }}</span>
             </div>
           </div>
         </div>
@@ -309,6 +531,82 @@ const closeModal = () => {
   color: #999;
   font-size: 13px;
   padding: 40px 0;
+}
+
+.loading-comments {
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+  padding: 40px 0;
+}
+
+.comment-item {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.comment-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  margin-right: 12px;
+}
+
+.comment-content {
+  flex: 1;
+}
+
+.comment-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.comment-username {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  margin-right: 8px;
+}
+
+.comment-time {
+  font-size: 12px;
+  color: #999;
+}
+
+.comment-text {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.delete-comment-btn {
+  font-size: 12px;
+  color: #999;
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-top: 4px;
+  padding: 0;
+}
+
+.delete-comment-btn:hover {
+  color: #ff2442;
+}
+
+.action-item.active {
+  color: #ff2442;
+}
+
+.action-item.active svg {
+  color: #ff2442;
+}
+
+.action-item:hover {
+  color: #ff2442;
 }
 
 .actions-bar {

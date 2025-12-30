@@ -16,15 +16,25 @@ const currentUser = ref(null)
 const pendingNavigation = ref(null) // Store intended navigation when login is required
 const selectedPost = ref(null)
 const showPostDetail = ref(false)
+const interactionOccurred = ref(false) // Track if user interacted with post (like/collect/comment)
 
 const handleOpenDetail = (post) => {
-  selectedPost.value = post
+  selectedPost.value = { ...post }
   showPostDetail.value = true
+  interactionOccurred.value = false // Reset interaction flag when opening
 }
 
-const handleCloseDetail = () => {
+const handleCloseDetail = (shouldRefresh = false) => {
   showPostDetail.value = false
   selectedPost.value = null
+  // Only fetch posts if there was an interaction (like/collect/comment)
+  if (shouldRefresh || interactionOccurred.value) {
+    fetchPosts()
+  }
+}
+
+const handleInteraction = () => {
+  interactionOccurred.value = true
 }
 
 const handleNavChange = (id) => {
@@ -92,20 +102,46 @@ const fetchPosts = async () => {
     const data = await response.json()
     
     // Map backend data to frontend structure
-    posts.value = data.map(post => ({
-      id: post.id,
-      title: post.title,
-      description: post.description || '',
-      // For videos, use cover_url if available, otherwise use a placeholder
-      image: post.type === 'video' 
-        ? (post.cover_url || 'http://localhost:3000/uploads/video_cover_placeholder.svg') 
-        : post.url, 
-      videoUrl: post.type === 'video' ? post.url : null,
-      type: post.type,
-      user: post.author,
-      avatar: post.author_avatar,
-      likes: Math.floor(Math.random() * 1000), // Mock likes for now
-      createdAt: post.created_at
+    posts.value = await Promise.all(data.map(async post => {
+      // Get like status for current user if logged in
+      let likeStatus = { liked: false, likeCount: 0 }
+      let collectStatus = { collected: false, collectionCount: 0 }
+      
+      if (currentUser.value) {
+        try {
+          const likeRes = await fetch(`http://localhost:3000/posts/${post.id}/like/status?userId=${currentUser.value.id}`)
+          likeStatus = await likeRes.json()
+        } catch (e) {
+          console.warn('Failed to fetch like status:', e)
+        }
+        
+        try {
+          const collectRes = await fetch(`http://localhost:3000/posts/${post.id}/collect/status?userId=${currentUser.value.id}`)
+          collectStatus = await collectRes.json()
+        } catch (e) {
+          console.warn('Failed to fetch collect status:', e)
+        }
+      }
+      
+      return {
+        id: post.id,
+        title: post.title,
+        description: post.description || '',
+        // For videos, use cover_url if available, otherwise use a placeholder
+        image: post.type === 'video' 
+          ? (post.cover_url || 'http://localhost:3000/uploads/video_cover_placeholder.svg') 
+          : post.url, 
+        videoUrl: post.type === 'video' ? post.url : null,
+        type: post.type,
+        user: post.author,
+        avatar: post.author_avatar,
+        likes: likeStatus.likeCount,
+        likeCount: likeStatus.likeCount,
+        likeStatus: likeStatus.liked,
+        collectionCount: collectStatus.collectionCount,
+        collectionStatus: collectStatus.collected,
+        createdAt: post.created_at
+      }
     }))
   } catch (error) {
     console.error('Failed to fetch posts:', error)
@@ -144,6 +180,7 @@ fetchPosts()
           :current-user="currentUser"
           @update-user="handleUpdateUser"
           @back="handleBackFromProfile"
+          @open-detail="handleOpenDetail"
         />
       </template>
       
@@ -160,8 +197,10 @@ fetchPosts()
     <!-- Post Detail Modal -->
     <PostDetailModal 
       v-if="showPostDetail && selectedPost" 
-      :post="selectedPost" 
+      :post="selectedPost"
+      :current-user="currentUser"
       @close="handleCloseDetail"
+      @interaction="handleInteraction"
     />
   </div>
 </template>
