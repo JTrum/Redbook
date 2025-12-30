@@ -10,7 +10,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update-user', 'back'])
 
-// Edit modal state
 const showEditModal = ref(false)
 const editNickname = ref('')
 const editGender = ref('')
@@ -27,12 +26,115 @@ const tabs = [
   { id: 'likes', label: '点赞' }
 ]
 
-// Mock stats (in a real app, these would come from the backend)
+const userPosts = ref([])
+const favoritePosts = ref([])
+const likePosts = ref([])
+const isLoading = ref(false)
+
 const stats = computed(() => ({
   following: Math.floor(Math.random() * 10),
   followers: Math.floor(Math.random() * 100),
   likes: Math.floor(Math.random() * 500)
 }))
+
+const fetchUserPosts = async () => {
+  if (!props.currentUser?.id) return
+  try {
+    const response = await fetch('http://localhost:3000/posts')
+    const posts = await response.json()
+    userPosts.value = posts.filter(p => {
+      const author = p.author?.toLowerCase() || ''
+      const currentUserName = props.currentUser?.nickname?.toLowerCase() || ''
+      return author === currentUserName || p.author_id === props.currentUser?.id
+    }).map(p => ({
+      id: p.id,
+      title: p.title,
+      image: p.type === 'video' ? (p.cover_url || p.url) : p.url,
+      type: p.type,
+      likes: 0
+    }))
+  } catch (error) {
+    console.error('Failed to fetch user posts:', error)
+  }
+}
+
+const fetchFavoritePosts = async () => {
+  if (!props.currentUser?.id) return
+  isLoading.value = true
+  try {
+    const response = await fetch(`http://localhost:3000/posts/user/${props.currentUser.id}/collections`)
+    const data = await response.json()
+    favoritePosts.value = data.map(c => ({
+      id: c.post.id,
+      title: c.post.title,
+      image: c.post.type === 'video' ? (c.post.cover_url || c.post.url) : c.post.url,
+      type: c.post.type,
+      likes: 0
+    }))
+  } catch (error) {
+    console.error('Failed to fetch favorites:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const fetchLikePosts = async () => {
+  if (!props.currentUser?.id) return
+  isLoading.value = true
+  try {
+    const response = await fetch('http://localhost:3000/posts')
+    const posts = await response.json()
+    const likeResponse = await fetch(`http://localhost:3000/posts`)
+    const allPosts = await likeResponse.json()
+    
+    const likedPostIds = new Set()
+    for (const post of allPosts) {
+      try {
+        const statusRes = await fetch(`http://localhost:3000/posts/${post.id}/like/status?userId=${props.currentUser.id}`)
+        const status = await statusRes.json()
+        if (status.liked) {
+          likedPostIds.add(post.id)
+        }
+      } catch (e) {
+        console.warn('Failed to check like status for post', post.id)
+      }
+    }
+    
+    likePosts.value = posts
+      .filter(p => likedPostIds.has(p.id))
+      .map(p => ({
+        id: p.id,
+        title: p.title,
+        image: p.type === 'video' ? (p.cover_url || p.url) : p.url,
+        type: p.type,
+        likes: 0
+      }))
+  } catch (error) {
+    console.error('Failed to fetch likes:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const formattedUserId = computed(() => {
+  const id = props.currentUser?.id || 0
+  return String(id).padStart(8, '0')
+})
+
+watch(activeTab, (newTab) => {
+  if (newTab === 'favorites' && favoritePosts.value.length === 0) {
+    fetchFavoritePosts()
+  } else if (newTab === 'likes' && likePosts.value.length === 0) {
+    fetchLikePosts()
+  }
+})
+
+const getDisplayPosts = computed(() => {
+  if (activeTab.value === 'notes') return userPosts.value
+  if (activeTab.value === 'favorites') return favoritePosts.value
+  if (activeTab.value === 'likes') return likePosts.value
+  return []
+})
 
 const openEditModal = () => {
   editNickname.value = props.currentUser?.nickname || ''
@@ -90,11 +192,10 @@ const saveProfile = async () => {
   }
 }
 
-// Format user ID
-const formattedUserId = computed(() => {
-  const id = props.currentUser?.id || 0
-  return String(id).padStart(8, '0')
-})
+const handlePostClick = (post) => {
+  emit('open-detail', post)
+}
+
 </script>
 
 <template>
@@ -164,19 +265,65 @@ const formattedUserId = computed(() => {
 
     <!-- Content Area -->
     <div class="content-area">
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 80 80" fill="none">
-            <circle cx="40" cy="35" r="20" stroke="#ddd" stroke-width="2"/>
-            <path d="M25 60 Q40 75 55 60" stroke="#ddd" stroke-width="2" fill="none"/>
-          </svg>
+      <template v-if="activeTab === 'notes'">
+        <div v-if="userPosts.length > 0" class="posts-grid">
+          <div v-for="post in userPosts" :key="post.id" class="post-item" @click="handlePostClick(post)">
+            <img :src="post.image" :alt="post.title" class="post-image" />
+            <p class="post-title">{{ post.title }}</p>
+          </div>
         </div>
-        <p class="empty-text">
-          <template v-if="activeTab === 'notes'">TA 还没有发布任何内容哦</template>
-          <template v-else-if="activeTab === 'favorites'">TA 还没有收藏任何内容</template>
-          <template v-else>TA 还没有点赞任何内容</template>
-        </p>
-      </div>
+        <div v-else class="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="35" r="20" stroke="#ddd" stroke-width="2"/>
+              <path d="M25 60 Q40 75 55 60" stroke="#ddd" stroke-width="2" fill="none"/>
+            </svg>
+          </div>
+          <p class="empty-text">TA 还没有发布任何内容哦</p>
+        </div>
+      </template>
+      
+      <template v-else-if="activeTab === 'favorites'">
+        <div v-if="isLoading" class="loading-state">
+          <p class="loading-text">加载中...</p>
+        </div>
+        <div v-else-if="favoritePosts.length > 0" class="posts-grid">
+          <div v-for="post in favoritePosts" :key="post.id" class="post-item" @click="handlePostClick(post)">
+            <img :src="post.image" :alt="post.title" class="post-image" />
+            <p class="post-title">{{ post.title }}</p>
+          </div>
+        </div>
+        <div v-else class="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="35" r="20" stroke="#ddd" stroke-width="2"/>
+              <path d="M25 60 Q40 75 55 60" stroke="#ddd" stroke-width="2" fill="none"/>
+            </svg>
+          </div>
+          <p class="empty-text">TA 还没有收藏任何内容</p>
+        </div>
+      </template>
+      
+      <template v-else-if="activeTab === 'likes'">
+        <div v-if="isLoading" class="loading-state">
+          <p class="loading-text">加载中...</p>
+        </div>
+        <div v-else-if="likePosts.length > 0" class="posts-grid">
+          <div v-for="post in likePosts" :key="post.id" class="post-item" @click="handlePostClick(post)">
+            <img :src="post.image" :alt="post.title" class="post-image" />
+            <p class="post-title">{{ post.title }}</p>
+          </div>
+        </div>
+        <div v-else class="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="35" r="20" stroke="#ddd" stroke-width="2"/>
+              <path d="M25 60 Q40 75 55 60" stroke="#ddd" stroke-width="2" fill="none"/>
+            </svg>
+          </div>
+          <p class="empty-text">TA 还没有点赞任何内容</p>
+        </div>
+      </template>
     </div>
 
     <!-- Edit Modal -->
@@ -421,6 +568,52 @@ const formattedUserId = computed(() => {
 .empty-text {
   font-size: 14px;
   color: #999;
+}
+
+/* Posts Grid */
+.posts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px;
+  width: 100%;
+}
+
+.post-item {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.post-item:hover {
+  transform: translateY(-4px);
+}
+
+.post-image {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #f5f5f5;
+}
+
+.post-title {
+  font-size: 13px;
+  color: #333;
+  margin: 8px 0 0 0;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 40px;
+}
+
+.loading-text {
+  color: #999;
+  font-size: 14px;
 }
 
 /* Edit Modal */

@@ -18,13 +18,31 @@ const DB_PATH = (0, path_1.join)(__dirname, '..', 'database.json');
 const initDb = () => {
     if ((0, fs_1.existsSync)(DB_PATH)) {
         const data = (0, fs_1.readFileSync)(DB_PATH, 'utf-8');
-        return JSON.parse(data);
+        const parsed = JSON.parse(data);
+        return {
+            users: parsed.users || [],
+            posts: parsed.posts || [],
+            comments: parsed.comments || [],
+            likes: parsed.likes || [],
+            collections: parsed.collections || [],
+            userIdCounter: parsed.userIdCounter || 1,
+            postIdCounter: parsed.postIdCounter || 1,
+            commentIdCounter: parsed.commentIdCounter || 1,
+            likeIdCounter: parsed.likeIdCounter || 1,
+            collectionIdCounter: parsed.collectionIdCounter || 1
+        };
     }
     return {
         users: [],
         posts: [],
+        comments: [],
+        likes: [],
+        collections: [],
         userIdCounter: 1,
-        postIdCounter: 1
+        postIdCounter: 1,
+        commentIdCounter: 1,
+        likeIdCounter: 1,
+        collectionIdCounter: 1
     };
 };
 let db = initDb();
@@ -86,6 +104,117 @@ exports.database = {
         db.posts.push(newPost);
         saveDb();
         return newPost;
+    },
+    getCommentsByPostId: (postId) => {
+        return db.comments
+            .filter(c => c.post_id === postId)
+            .map(c => {
+            const user = exports.database.findUserById(c.user_id);
+            return {
+                id: c.id,
+                post_id: c.post_id,
+                user_id: c.user_id,
+                content: c.content,
+                created_at: c.created_at,
+                user: user
+            };
+        })
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    },
+    createComment: (postId, userId, content) => {
+        const newComment = {
+            id: db.commentIdCounter++,
+            post_id: postId,
+            user_id: userId,
+            content,
+            created_at: new Date().toISOString()
+        };
+        db.comments.push(newComment);
+        saveDb();
+        const user = exports.database.findUserById(userId);
+        return Object.assign(Object.assign({}, newComment), { user });
+    },
+    deleteComment: (commentId, userId) => {
+        const commentIndex = db.comments.findIndex(c => c.id === commentId && c.user_id === userId);
+        if (commentIndex === -1)
+            return false;
+        db.comments.splice(commentIndex, 1);
+        saveDb();
+        return true;
+    },
+    getLikesByPostId: (postId) => {
+        return db.likes.filter(l => l.post_id === postId);
+    },
+    isLikedByUser: (postId, userId) => {
+        return db.likes.some(l => l.post_id === postId && l.user_id === userId);
+    },
+    likePost: (postId, userId) => {
+        if (exports.database.isLikedByUser(postId, userId))
+            return false;
+        const newLike = {
+            id: db.likeIdCounter++,
+            post_id: postId,
+            user_id: userId,
+            created_at: new Date().toISOString()
+        };
+        db.likes.push(newLike);
+        saveDb();
+        return true;
+    },
+    unlikePost: (postId, userId) => {
+        const likeIndex = db.likes.findIndex(l => l.post_id === postId && l.user_id === userId);
+        if (likeIndex === -1)
+            return false;
+        db.likes.splice(likeIndex, 1);
+        saveDb();
+        return true;
+    },
+    getLikeCount: (postId) => {
+        return db.likes.filter(l => l.post_id === postId).length;
+    },
+    getCollectionsByUserId: (userId) => {
+        return db.collections
+            .filter(c => c.user_id === userId)
+            .map(c => {
+            const post = db.posts.find(p => p.id === c.post_id);
+            if (!post)
+                return null;
+            const author = exports.database.findUserById(post.author_id);
+            return {
+                id: c.id,
+                post_id: c.post_id,
+                created_at: c.created_at,
+                post: Object.assign(Object.assign({}, post), { author: (author === null || author === void 0 ? void 0 : author.nickname) || 'Anonymous', author_avatar: (author === null || author === void 0 ? void 0 : author.avatar) || 'https://i.pravatar.cc/150?u=anonymous' })
+            };
+        })
+            .filter(c => c !== null);
+    },
+    isCollectedByUser: (postId, userId) => {
+        return db.collections.some(c => c.post_id === postId && c.user_id === userId);
+    },
+    collectPost: (postId, userId) => {
+        if (exports.database.isCollectedByUser(postId, userId))
+            return false;
+        const newCollection = {
+            id: db.collectionIdCounter++,
+            post_id: postId,
+            user_id: userId,
+            created_at: new Date().toISOString()
+        };
+        db.collections.push(newCollection);
+        saveDb();
+        return true;
+    },
+    uncollectPost: (postId, userId) => {
+        const collectionIndex = db.collections.findIndex(c => c.post_id === postId && c.user_id === userId);
+        if (collectionIndex === -1)
+            return false;
+        db.collections.splice(collectionIndex, 1);
+        saveDb();
+        return true;
+    },
+    getCollectionCount: (postId) => {
+        return db.collections.filter(c => c.post_id === postId).length;
     }
 };
 //# sourceMappingURL=database.js.map

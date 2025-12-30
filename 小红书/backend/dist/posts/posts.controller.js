@@ -40,6 +40,42 @@ let PostsController = class PostsController {
     findAll() {
         return this.postsService.findAll();
     }
+    getComments(postId) {
+        return this.postsService.getCommentsByPostId(Number(postId));
+    }
+    createComment(postId, body) {
+        return this.postsService.createComment(Number(postId), body.userId, body.content);
+    }
+    deleteComment(commentId, body) {
+        return this.postsService.deleteComment(Number(commentId), body.userId);
+    }
+    likePost(postId, body) {
+        return this.postsService.likePost(Number(postId), body.userId);
+    }
+    unlikePost(postId, body) {
+        return this.postsService.unlikePost(Number(postId), body.userId);
+    }
+    getLikeStatus(postId, userId) {
+        return {
+            liked: this.postsService.isLikedByUser(Number(postId), Number(userId)),
+            likeCount: this.postsService.getLikeCount(Number(postId))
+        };
+    }
+    collectPost(postId, body) {
+        return this.postsService.collectPost(Number(postId), body.userId);
+    }
+    uncollectPost(postId, body) {
+        return this.postsService.uncollectPost(Number(postId), body.userId);
+    }
+    getCollectStatus(postId, userId) {
+        return {
+            collected: this.postsService.isCollectedByUser(Number(postId), Number(userId)),
+            collectionCount: this.postsService.getCollectionCount(Number(postId))
+        };
+    }
+    getUserCollections(userId) {
+        return this.postsService.getCollectionsByUserId(Number(userId));
+    }
 };
 exports.PostsController = PostsController;
 __decorate([
@@ -63,6 +99,84 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Get)(':postId/comments'),
+    __param(0, (0, common_1.Param)('postId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "getComments", null);
+__decorate([
+    (0, common_1.Post)(':postId/comments'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "createComment", null);
+__decorate([
+    (0, common_1.Delete)('comments/:commentId'),
+    __param(0, (0, common_1.Param)('commentId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "deleteComment", null);
+__decorate([
+    (0, common_1.Post)(':postId/like'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "likePost", null);
+__decorate([
+    (0, common_1.Post)(':postId/unlike'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "unlikePost", null);
+__decorate([
+    (0, common_1.Get)(':postId/like/status'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Query)('userId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "getLikeStatus", null);
+__decorate([
+    (0, common_1.Post)(':postId/collect'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "collectPost", null);
+__decorate([
+    (0, common_1.Post)(':postId/uncollect'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "uncollectPost", null);
+__decorate([
+    (0, common_1.Get)(':postId/collect/status'),
+    __param(0, (0, common_1.Param)('postId')),
+    __param(1, (0, common_1.Query)('userId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "getCollectStatus", null);
+__decorate([
+    (0, common_1.Get)('user/:userId/collections'),
+    __param(0, (0, common_1.Param)('userId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "getUserCollections", null);
 exports.PostsController = PostsController = __decorate([
     (0, common_1.Controller)('posts'),
     __metadata("design:paramtypes", [posts_service_1.PostsService])

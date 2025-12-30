@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   post: {
@@ -9,14 +9,27 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-detail'])
+const isLiked = ref(props.post.likeStatus || false)
+const likeCount = ref(props.post.likeCount || props.post.likes || 0)
 
-// Format numbers like 3.6w
 const formattedLikes = computed(() => {
-  const num = props.post.likes
+  const num = likeCount.value
   if (num >= 10000) {
     return (num / 10000).toFixed(1) + '万'
   }
   return num
+})
+
+const heartClass = computed(() => {
+  return isLiked.value ? 'heart-icon liked' : 'heart-icon'
+})
+
+const heartFill = computed(() => {
+  return isLiked.value ? '#ff2442' : 'none'
+})
+
+const heartColor = computed(() => {
+  return isLiked.value ? '#ff2442' : 'currentColor'
 })
 
 const handleCardClick = () => {
@@ -47,7 +60,7 @@ const handleCardClick = () => {
         </div>
         
         <div class="like-info">
-          <svg class="heart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg :class="heartClass" viewBox="0 0 24 24" :fill="heartFill" :stroke="heartColor" stroke-width="2">
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
           </svg>
           <span class="like-count">{{ formattedLikes }}</span>
@@ -178,6 +191,15 @@ const handleCardClick = () => {
   height: 14px;
   margin-right: 4px;
   color: #999;
+  transition: all 0.2s ease;
+}
+
+.heart-icon.liked {
+  color: #ff2442;
+}
+
+.heart-icon:hover {
+  transform: scale(1.1);
 }
 
 .like-count {
