@@ -5,10 +5,18 @@ const props = defineProps({
   currentUser: {
     type: Object,
     required: true
+  },
+  userId: {
+    type: String,
+    default: null
+  },
+  isOwnProfile: {
+    type: Boolean,
+    default: true
   }
 })
 
-const emit = defineEmits(['update-user', 'back'])
+const emit = defineEmits(['update-user', 'back', 'open-user-profile', 'update-stats'])
 
 const showEditModal = ref(false)
 const editNickname = ref('')
@@ -31,16 +39,145 @@ const favoritePosts = ref([])
 const likePosts = ref([])
 const isLoading = ref(false)
 
-const stats = computed(() => ({
-  following: Math.floor(Math.random() * 10),
-  followers: Math.floor(Math.random() * 100),
-  likes: Math.floor(Math.random() * 500)
-}))
+// Follow functionality
+const isFollowing = ref(false)
+const isFollowLoading = ref(false)
+const showFollowersModal = ref(false)
+const showFollowingModal = ref(false)
+const followersList = ref([])
+const followingList = ref([])
+const isLoadingFollowers = ref(false)
+const isLoadingFollowing = ref(false)
+
+// Search functionality
+const searchQueryFollowers = ref('')
+const searchQueryFollowing = ref('')
+
+// Follow status for each user in lists
+const followingStatus = ref({})
+const followLoading = ref({})
+
+// Filtered lists
+const filteredFollowers = computed(() => {
+  if (!searchQueryFollowers.value) return followersList.value
+  const query = searchQueryFollowers.value.toLowerCase()
+  return followersList.value.filter(user => 
+    user.nickname.toLowerCase().includes(query)
+  )
+})
+
+const filteredFollowing = computed(() => {
+  if (!searchQueryFollowing.value) return followingList.value
+  const query = searchQueryFollowing.value.toLowerCase()
+  return followingList.value.filter(user => 
+    user.nickname.toLowerCase().includes(query)
+  )
+})
+
+// Check follow status for a specific user
+const checkUserFollowStatus = async (userId) => {
+  if (!props.currentUser || props.currentUser.id === userId) return false
+  
+  try {
+    const response = await fetch(`/api/auth/following-status?followerId=${props.currentUser.id}&followingId=${userId}`)
+    const data = await response.json()
+    followingStatus.value[userId] = data.isFollowing || false
+    return data.isFollowing || false
+  } catch (error) {
+    console.error('Failed to check follow status:', error)
+    return false
+  }
+}
+
+// Follow/unfollow user in list
+const handleListFollow = async (userId) => {
+  if (!props.currentUser || props.currentUser.id === userId) return
+  
+  followLoading.value[userId] = true
+  
+  try {
+    const isFollowing = followingStatus.value[userId] || false
+    const endpoint = isFollowing ? 'unfollow' : 'follow'
+    const response = await fetch(`/api/auth/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        followerId: props.currentUser.id,
+        followingId: userId
+      })
+    })
+    
+    const data = await response.json()
+    if (data.success) {
+      followingStatus.value[userId] = !isFollowing
+      fetchUserStats() // 更新统计数据
+    } else {
+      alert(data.message || '操作失败，请重试')
+    }
+  } catch (error) {
+    console.error('Failed to follow/unfollow:', error)
+    alert('网络错误，请重试')
+  } finally {
+    followLoading.value[userId] = false
+  }
+}
+
+// Load follow status for all users in the list
+const loadFollowStatus = async (users) => {
+  if (!props.currentUser) return
+  
+  for (const user of users) {
+    if (user.id !== props.currentUser.id) {
+      await checkUserFollowStatus(user.id)
+    }
+  }
+}
+
+const stats = ref({
+  following: 0,
+  followers: 0,
+  likes: 0
+})
+
+const fetchUserStats = async () => {
+  if (!props.currentUser?.id) return
+  
+  try {
+    // 获取关注数
+    const followingResponse = await fetch(`/api/auth/following-count/${props.currentUser.id}`)
+    const followingData = await followingResponse.json()
+    
+    // 获取粉丝数
+    const followersResponse = await fetch(`/api/auth/followers-count/${props.currentUser.id}`)
+    const followersData = await followersResponse.json()
+    
+    // 获取获赞与收藏数
+    const statsResponse = await fetch(`/api/posts/user/${props.currentUser.id}/stats`)
+    const statsData = await statsResponse.json()
+    
+    // 更新统计数据
+    stats.value = {
+      following: followingData.count || 0,
+      followers: followersData.count || 0,
+      likes: (statsData.totalLikes || 0) + (statsData.totalCollections || 0)
+    }
+  } catch (error) {
+    console.error('Failed to fetch user stats:', error)
+  }
+}
+
+// 在组件挂载或currentUser变化时获取统计数据
+watch(() => props.currentUser, fetchUserStats, { immediate: true, deep: true })
+
+// 当关注状态变化时重新获取统计数据
+watch(isFollowing, fetchUserStats)
 
 const fetchUserPosts = async () => {
   if (!props.currentUser?.id) return
   try {
-    const response = await fetch('http://localhost:3000/posts')
+    const response = await fetch('/api/posts')
     const posts = await response.json()
     userPosts.value = posts.filter(p => {
       const author = p.author?.toLowerCase() || ''
@@ -84,13 +221,13 @@ const fetchLikePosts = async () => {
   try {
     const response = await fetch('http://localhost:3000/posts')
     const posts = await response.json()
-    const likeResponse = await fetch(`http://localhost:3000/posts`)
+    const likeResponse = await fetch(`/api/posts`)
     const allPosts = await likeResponse.json()
     
     const likedPostIds = new Set()
     for (const post of allPosts) {
       try {
-        const statusRes = await fetch(`http://localhost:3000/posts/${post.id}/like/status?userId=${props.currentUser.id}`)
+        const statusRes = await fetch(`/api/posts/${post.id}/like/status?userId=${props.currentUser.id}`)
         const status = await statusRes.json()
         if (status.liked) {
           likedPostIds.add(post.id)
@@ -121,6 +258,131 @@ const formattedUserId = computed(() => {
   return String(id).padStart(8, '0')
 })
 
+// Check follow status when component mounts or props change
+const checkFollowStatus = async () => {
+  if (!props.currentUser || props.isOwnProfile) {
+    isFollowing.value = false
+    return
+  }
+  
+  try {
+    const targetUserId = props.userId ? Number(props.userId) : props.currentUser.id
+    const response = await fetch(`/api/auth/following-status?followerId=${props.currentUser.id}&followingId=${targetUserId}`)
+    const data = await response.json()
+    isFollowing.value = data.isFollowing || false
+  } catch (error) {
+    console.error('Failed to check follow status:', error)
+  }
+}
+
+// Follow/unfollow user
+const handleFollow = async () => {
+  if (!props.currentUser || props.isOwnProfile) return
+  
+  const targetUserId = props.userId ? Number(props.userId) : props.currentUser.id
+  // 确保不会关注自己
+  if (targetUserId === props.currentUser.id) return
+  
+  isFollowLoading.value = true
+  
+  try {
+    const endpoint = isFollowing.value ? 'unfollow' : 'follow'
+    const response = await fetch(`/api/auth/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        followerId: props.currentUser.id,
+        followingId: targetUserId
+      })
+    })
+    
+    const data = await response.json()
+    if (data.success) {
+      isFollowing.value = !isFollowing.value
+      emit('update-stats', { isFollowing: isFollowing.value })
+    } else {
+      alert(data.message || '操作失败，请重试')
+    }
+  } catch (error) {
+    console.error('Failed to follow/unfollow:', error)
+    alert('网络错误，请重试')
+  } finally {
+    isFollowLoading.value = false
+  }
+}
+
+// Load followers list
+const loadFollowers = async () => {
+  const targetUserId = props.userId ? Number(props.userId) : props.currentUser.id
+  isLoadingFollowers.value = true
+  
+  try {
+    const response = await fetch(`/api/auth/followers/${targetUserId}`)
+    const data = await response.json()
+    followersList.value = data || []
+    
+    // Load follow status for all followers
+    if (props.currentUser) {
+      await loadFollowStatus(followersList.value)
+    }
+  } catch (error) {
+    console.error('Failed to load followers:', error)
+  } finally {
+    isLoadingFollowers.value = false
+  }
+}
+
+// Load following list
+const loadFollowing = async () => {
+  const targetUserId = props.userId ? Number(props.userId) : props.currentUser.id
+  isLoadingFollowing.value = true
+  
+  try {
+    const response = await fetch(`/api/auth/following/${targetUserId}`)
+    const data = await response.json()
+    followingList.value = data || []
+    
+    // Load follow status for all following users
+    if (props.currentUser) {
+      await loadFollowStatus(followingList.value)
+    }
+  } catch (error) {
+    console.error('Failed to load following:', error)
+  } finally {
+    isLoadingFollowing.value = false
+  }
+}
+
+// Open followers modal
+const openFollowersModal = () => {
+  loadFollowers()
+  showFollowersModal.value = true
+}
+
+// Open following modal
+const openFollowingModal = () => {
+  loadFollowing()
+  showFollowingModal.value = true
+}
+
+// Close modals
+const closeFollowersModal = () => {
+  showFollowersModal.value = false
+}
+
+const closeFollowingModal = () => {
+  showFollowingModal.value = false
+}
+
+// Navigate to user profile
+const navigateToUserProfile = (userId) => {
+  emit('open-user-profile', userId)
+  closeFollowersModal()
+  closeFollowingModal()
+}
+
 watch(activeTab, (newTab) => {
   if (newTab === 'favorites' && favoritePosts.value.length === 0) {
     fetchFavoritePosts()
@@ -128,6 +390,9 @@ watch(activeTab, (newTab) => {
     fetchLikePosts()
   }
 })
+
+// Check follow status when component mounts or props change
+watch(() => [props.currentUser, props.userId, props.isOwnProfile], checkFollowStatus, { immediate: true, deep: true })
 
 const getDisplayPosts = computed(() => {
   if (activeTab.value === 'notes') return userPosts.value
@@ -165,7 +430,7 @@ const handleAvatarChange = (event) => {
 
 const saveProfile = async () => {
   try {
-    const response = await fetch('http://localhost:3000/auth/profile', {
+    const response = await fetch('/api/auth/profile', {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json'
@@ -209,13 +474,32 @@ const handlePostClick = (post) => {
       <div class="info-section">
         <div class="name-row">
           <h1 class="nickname">{{ currentUser.nickname }}</h1>
-          <button class="edit-btn" @click="openEditModal">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="5" cy="12" r="2"/>
-              <circle cx="12" cy="12" r="2"/>
-              <circle cx="19" cy="12" r="2"/>
-            </svg>
-          </button>
+          <template v-if="isOwnProfile">
+            <button class="edit-btn" @click="openEditModal">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="2"/>
+                <circle cx="12" cy="12" r="2"/>
+                <circle cx="19" cy="12" r="2"/>
+              </svg>
+            </button>
+          </template>
+          <template v-else>
+            <button 
+              class="follow-btn" 
+              :class="{ 'following': isFollowing }"
+              @click="handleFollow"
+              :disabled="isFollowLoading"
+            >
+              <span v-if="isFollowLoading" class="follow-btn-loading">
+                <svg class="loading-spinner" viewBox="0 0 24 24" fill="currentColor">
+                  <circle class="spinner-path" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round"/>
+                </svg>
+                处理中...
+              </span>
+              <span v-else-if="isFollowing">已关注</span>
+              <span v-else>关注</span>
+            </button>
+          </template>
         </div>
         
         <p class="user-id">趣生活号：{{ formattedUserId }}</p>
@@ -232,11 +516,11 @@ const handlePostClick = (post) => {
         </div>
         
         <div class="stats-row">
-          <div class="stat-item">
+          <div class="stat-item" @click="openFollowingModal">
             <span class="stat-number">{{ stats.following }}</span>
             <span class="stat-label">关注</span>
           </div>
-          <div class="stat-item">
+          <div class="stat-item" @click="openFollowersModal">
             <span class="stat-number">{{ stats.followers }}</span>
             <span class="stat-label">粉丝</span>
           </div>
@@ -383,13 +667,176 @@ const handlePostClick = (post) => {
         </div>
       </div>
     </div>
+
+    <!-- Followers Modal -->
+    <div v-if="showFollowersModal" class="modal-overlay" @click.self="closeFollowersModal">
+      <div class="follow-modal">
+        <div class="modal-header">
+          <button class="modal-close" @click="closeFollowersModal">取消</button>
+          <h2>粉丝</h2>
+        </div>
+        
+        <div class="modal-content">
+          <!-- Search Bar -->
+          <div class="search-bar">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <input 
+              type="text" 
+              v-model="searchQueryFollowers" 
+              placeholder="搜索粉丝"
+              class="search-input"
+            />
+          </div>
+          
+          <div v-if="isLoadingFollowers" class="loading-state">
+            <p class="loading-text">加载中...</p>
+          </div>
+          <div v-else-if="filteredFollowers.length === 0" class="empty-state">
+            <p class="empty-text">
+              {{ searchQueryFollowers ? '未找到匹配的粉丝' : '暂无粉丝' }}
+            </p>
+          </div>
+          <div v-else class="followers-list">
+            <transition-group name="list" tag="div">
+              <div 
+                v-for="(user, index) in filteredFollowers" 
+                :key="user.id" 
+                class="follow-item"
+                :class="{ 'animate-enter': true }"
+                :style="{ '--index': index }"
+              >
+                <div class="follow-item-content" @click="navigateToUserProfile(user.id)">
+                  <img :src="user.avatar" :alt="user.nickname" class="follow-avatar" />
+                  <div class="follow-info">
+                    <div class="follow-name-row">
+                      <span class="follow-nickname">{{ user.nickname }}</span>
+                      <span v-if="user.gender && user.gender !== '保密'" class="gender-badge">
+                        <svg v-if="user.gender === '女'" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C9.24 2 7 4.24 7 7c0 2.52 1.86 4.59 4.28 4.94V14H9v2h2.28v3h1.43v-3H15v-2h-2.28v-2.06C15.14 11.59 17 9.52 17 7c0-2.76-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/>
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C9.24 2 7 4.24 7 7c0 2.76 2.24 5 5 5s5-2.24 5-5c0-2.76-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3zm4 4h-2.06c-.48 1.72-1.25 3.3-2.25 4.57-.55.7-.88 1.16-.88 1.16L12 21l1.19-1.27s0 0-.02-.02c-.2-.25-.37-.5-.55-.76.99-1.26 1.76-2.84 2.25-4.55H17v-1.4h-3V13h-2v.4H9v1.4z"/>
+                        </svg>
+                      </span>
+                    </div>
+                    <span class="follow-id">趣生活号：{{ String(user.id).padStart(8, '0') }}</span>
+                    <p class="follow-bio" v-if="user.bio">{{ user.bio }}</p>
+                  </div>
+                </div>
+                <button 
+                  v-if="user.id !== currentUser?.id"
+                  class="follow-item-btn" 
+                  :class="{ 'following': followingStatus[user.id] }"
+                  @click.stop="handleListFollow(user.id)"
+                  :disabled="followLoading[user.id]"
+                >
+                  <span v-if="followLoading[user.id]" class="btn-loading">
+                    <svg class="loading-spinner" viewBox="0 0 24 24" fill="currentColor">
+                      <circle class="spinner-path" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span v-else-if="followingStatus[user.id]">已关注</span>
+                  <span v-else>关注</span>
+                </button>
+              </div>
+            </transition-group>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Following Modal -->
+    <div v-if="showFollowingModal" class="modal-overlay" @click.self="closeFollowingModal">
+      <div class="follow-modal">
+        <div class="modal-header">
+          <button class="modal-close" @click="closeFollowingModal">取消</button>
+          <h2>关注</h2>
+        </div>
+        
+        <div class="modal-content">
+          <!-- Search Bar -->
+          <div class="search-bar">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <input 
+              type="text" 
+              v-model="searchQueryFollowing" 
+              placeholder="搜索关注的人"
+              class="search-input"
+            />
+          </div>
+          
+          <div v-if="isLoadingFollowing" class="loading-state">
+            <p class="loading-text">加载中...</p>
+          </div>
+          <div v-else-if="filteredFollowing.length === 0" class="empty-state">
+            <p class="empty-text">
+              {{ searchQueryFollowing ? '未找到匹配的用户' : '暂无关注' }}
+            </p>
+          </div>
+          <div v-else class="followers-list">
+            <transition-group name="list" tag="div">
+              <div 
+                v-for="(user, index) in filteredFollowing" 
+                :key="user.id" 
+                class="follow-item"
+                :class="{ 'animate-enter': true }"
+                :style="{ '--index': index }"
+              >
+                <div class="follow-item-content" @click="navigateToUserProfile(user.id)">
+                  <img :src="user.avatar" :alt="user.nickname" class="follow-avatar" />
+                  <div class="follow-info">
+                    <div class="follow-name-row">
+                      <span class="follow-nickname">{{ user.nickname }}</span>
+                      <span v-if="user.gender && user.gender !== '保密'" class="gender-badge">
+                        <svg v-if="user.gender === '女'" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C9.24 2 7 4.24 7 7c0 2.52 1.86 4.59 4.28 4.94V14H9v2h2.28v3h1.43v-3H15v-2h-2.28v-2.06C15.14 11.59 17 9.52 17 7c0-2.76-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/>
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C9.24 2 7 4.24 7 7c0 2.76 2.24 5 5 5s5-2.24 5-5c0-2.76-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3zm4 4h-2.06c-.48 1.72-1.25 3.3-2.25 4.57-.55.7-.88 1.16-.88 1.16L12 21l1.19-1.27s0 0-.02-.02c-.2-.25-.37-.5-.55-.76.99-1.26 1.76-2.84 2.25-4.55H17v-1.4h-3V13h-2v.4H9v1.4z"/>
+                        </svg>
+                      </span>
+                    </div>
+                    <span class="follow-id">趣生活号：{{ String(user.id).padStart(8, '0') }}</span>
+                    <p class="follow-bio" v-if="user.bio">{{ user.bio }}</p>
+                  </div>
+                </div>
+                <button 
+                  v-if="user.id !== currentUser?.id"
+                  class="follow-item-btn" 
+                  :class="{ 'following': followingStatus[user.id] }"
+                  @click.stop="handleListFollow(user.id)"
+                  :disabled="followLoading[user.id]"
+                >
+                  <span v-if="followLoading[user.id]" class="btn-loading">
+                    <svg class="loading-spinner" viewBox="0 0 24 24" fill="currentColor">
+                      <circle class="spinner-path" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span v-else-if="followingStatus[user.id]">已关注</span>
+                  <span v-else>关注</span>
+                </button>
+              </div>
+            </transition-group>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .profile-page {
-  background: #fff;
+  background: #f0f0f0;
   min-height: 100vh;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .profile-page {
+  background: #1a1a1a;
 }
 
 /* Profile Header */
@@ -397,7 +844,12 @@ const handlePostClick = (post) => {
   display: flex;
   gap: 32px;
   padding: 40px 60px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* 深色模式 */
+[data-theme="dark"] .profile-header {
+  border-bottom: 1px solid #333;
 }
 
 .avatar-section {
@@ -426,8 +878,13 @@ const handlePostClick = (post) => {
 .nickname {
   font-size: 28px;
   font-weight: 600;
-  color: #333;
+  color: #333333;
   margin: 0;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .nickname {
+  color: #ffffff;
 }
 
 .edit-btn {
@@ -442,7 +899,7 @@ const handlePostClick = (post) => {
 }
 
 .edit-btn:hover {
-  background: #f5f5f5;
+  background: var(--bg-color);
 }
 
 .edit-btn svg {
@@ -452,13 +909,76 @@ const handlePostClick = (post) => {
 
 .user-id {
   font-size: 13px;
-  color: #999;
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
+}
+
+/* Follow Button */
+.follow-btn {
+  padding: 10px 24px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #ff2442 0%, #ff7a85 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.follow-btn:hover:not(:disabled):not(.following) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 36, 66, 0.3);
+  background: linear-gradient(135deg, #ff4a62 0%, #ff939d 100%);
+}
+
+.follow-btn:active:not(:disabled):not(.following) {
+  transform: translateY(0);
+}
+
+.follow-btn.following {
+  background: var(--bg-color);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.follow-btn.following:hover:not(:disabled) {
+  background: rgba(var(--primary-color-rgb), 0.05);
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.follow-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.follow-btn-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  animation: spin 1s linear infinite;
+}
+
+.spinner-path {
+  stroke-dasharray: 50; /* 调整这个值来改变动画效果 */
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .bio {
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   margin: 0 0 8px 0;
 }
 
@@ -468,7 +988,7 @@ const handlePostClick = (post) => {
   justify-content: center;
   width: 20px;
   height: 20px;
-  background: #f0f0f0;
+  background: var(--bg-color);
   border-radius: 50%;
   margin-bottom: 16px;
 }
@@ -476,7 +996,7 @@ const handlePostClick = (post) => {
 .gender-tag svg {
   width: 12px;
   height: 12px;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .stats-row {
@@ -502,9 +1022,18 @@ const handlePostClick = (post) => {
   color: #999;
 }
 
+/* 深色模式 */
+[data-theme="dark"] .stat-number {
+  color: #fff;
+}
+
+[data-theme="dark"] .stat-label {
+  color: #777;
+}
+
 /* Tabs */
 .tabs-container {
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid #e0e0e0;
   padding: 0 60px;
 }
 
@@ -538,8 +1067,29 @@ const handlePostClick = (post) => {
   transform: translateX(-50%);
   width: 24px;
   height: 3px;
-  background: #333;
+  background: #333333;
   border-radius: 2px;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .tabs-container {
+  border-bottom: 1px solid #333;
+}
+
+[data-theme="dark"] .tab-btn {
+  color: #777;
+}
+
+[data-theme="dark"] .tab-btn:hover {
+  color: #ccc;
+}
+
+[data-theme="dark"] .tab-btn.active {
+  color: #fff;
+}
+
+[data-theme="dark"] .tab-btn.active::after {
+  background: #fff;
 }
 
 /* Content Area */
@@ -565,9 +1115,19 @@ const handlePostClick = (post) => {
   height: 100%;
 }
 
+/* 深色模式 */
+[data-theme="dark"] .empty-icon svg {
+  stroke: #555555;
+}
+
 .empty-text {
   font-size: 14px;
-  color: #999;
+  color: #999999;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .empty-text {
+  color: #777777;
 }
 
 /* Posts Grid */
@@ -592,18 +1152,28 @@ const handlePostClick = (post) => {
   height: 220px;
   object-fit: cover;
   border-radius: 8px;
-  background: #f5f5f5;
+  background: #f0f0f0;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .post-image {
+  background: #2a2a2a;
 }
 
 .post-title {
   font-size: 13px;
-  color: #333;
+  color: #333333;
   margin: 8px 0 0 0;
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .post-title {
+  color: #ffffff;
 }
 
 .loading-state {
@@ -631,12 +1201,18 @@ const handlePostClick = (post) => {
 }
 
 .edit-modal {
-  background: white;
+  background: #f8f8f8;
   border-radius: 16px;
   width: 400px;
   max-width: 90%;
   overflow: hidden;
   animation: slideUp 0.3s ease;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .edit-modal {
+  background: #2a2a2a;
+  border: 1px solid #404040;
 }
 
 @keyframes slideUp {
@@ -725,6 +1301,42 @@ const handlePostClick = (post) => {
   resize: none;
 }
 
+/* Search Bar */
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: #f5f5f5;
+  border-radius: 20px;
+  padding: 8px 16px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.search-bar:focus-within {
+  background: var(--white);
+  box-shadow: var(--shadow-md);
+}
+
+.search-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  margin-right: 8px;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  outline: none;
+  color: var(--text-primary);
+}
+
+.search-input::placeholder {
+  color: var(--text-secondary);
+}
+
 .gender-select {
   display: flex;
   gap: 12px;
@@ -733,16 +1345,16 @@ const handlePostClick = (post) => {
 .gender-option {
   flex: 1;
   padding: 10px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   transition: all 0.2s;
 }
 
 .gender-option:hover {
-  border-color: #ff2442;
-  color: #ff2442;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .gender-option.selected {
@@ -801,5 +1413,214 @@ const handlePostClick = (post) => {
 .avatar-overlay span {
   font-size: 11px;
   color: white;
+}
+
+/* Follow Modal */
+.follow-modal {
+  background: #f8f8f8;
+  border-radius: 16px;
+  width: 400px;
+  max-width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  animation: slideUp 0.3s ease;
+}
+
+/* 深色模式 */
+[data-theme="dark"] .follow-modal {
+  background: #2a2a2a;
+  border: 1px solid #404040;
+}
+
+.followers-list {
+  overflow-y: auto;
+  max-height: calc(80vh - 120px);
+  padding-right: 8px;
+}
+
+.followers-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.followers-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.followers-list::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.followers-list::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+.follow-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.follow-item:last-child {
+  border-bottom: none;
+}
+
+.follow-item-content {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex: 1;
+}
+
+.follow-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 12px;
+}
+
+.follow-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.follow-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.follow-nickname {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+}
+
+.gender-badge {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f0f0;
+  border-radius: 50%;
+}
+
+.gender-badge svg {
+  width: 12px;
+  height: 12px;
+  color: #999;
+}
+
+.follow-id {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.follow-bio {
+  font-size: 13px;
+  color: #666;
+  margin: 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Animation for list items */
+.animate-enter {
+  animation: fadeInUp 0.5s ease forwards;
+  opacity: 0;
+  transform: translateY(10px);
+  animation-delay: calc(var(--index) * 0.05s);
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Follow Item Button */
+.follow-item-btn {
+  padding: 6px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: linear-gradient(135deg, #ff2442 0%, #ff7a85 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  min-width: 70px;
+  overflow: hidden;
+}
+
+.follow-item-btn:hover:not(:disabled):not(.following) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(255, 36, 66, 0.3);
+  background: linear-gradient(135deg, #ff4a62 0%, #ff939d 100%);
+}
+
+.follow-item-btn:active:not(:disabled):not(.following) {
+  transform: translateY(0);
+}
+
+.follow-item-btn.following {
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #e0e0e0;
+}
+
+.follow-item-btn.following:hover:not(:disabled) {
+  background: #f0f0f0;
+  color: #ff2442;
+  border-color: #ff2442;
+}
+
+.follow-item-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-loading .loading-spinner {
+  width: 12px;
+  height: 12px;
+}
+
+/* Transition Group */
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.3s ease;
+}
+
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.list-move {
+  transition: transform 0.3s ease;
 }
 </style>

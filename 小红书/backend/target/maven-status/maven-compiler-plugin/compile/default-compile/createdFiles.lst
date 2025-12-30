@@ -1,0 +1,15 @@
+com\xiaohongshu\entity\Like.class
+com\xiaohongshu\repository\LikeRepository.class
+com\xiaohongshu\repository\PostRepository.class
+com\xiaohongshu\entity\Post.class
+com\xiaohongshu\service\UserService.class
+com\xiaohongshu\entity\Collection.class
+com\xiaohongshu\controller\FileController.class
+com\xiaohongshu\repository\UserRepository.class
+com\xiaohongshu\controller\PostController.class
+com\xiaohongshu\repository\CollectionRepository.class
+com\xiaohongshu\service\PostService.class
+com\xiaohongshu\entity\User.class
+com\xiaohongshu\XiaohongshuApplication.class
+com\xiaohongshu\controller\AuthController.class
+com\xiaohongshu\config\WebConfig.class

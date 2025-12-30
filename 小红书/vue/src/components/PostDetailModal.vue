@@ -24,6 +24,9 @@ const collectCount = ref(props.post.collectionCount || 0)
 const comments = ref([])
 const newComment = ref('')
 const isLoadingComments = ref(false)
+const replyToCommentId = ref(null)
+const replyToNickname = ref(null)
+const showDeleteMenu = ref(null)
 
 const formattedLikes = computed(() => {
   const num = likeCount.value
@@ -51,6 +54,10 @@ const formattedCommentCount = computed(() => {
   return num
 })
 
+// Follow functionality
+const isFollowing = ref(false)
+const isFollowLoading = ref(false)
+
 const togglePlay = () => {
   if (videoRef.value) {
     if (isPlaying.value) {
@@ -75,16 +82,19 @@ const fetchComments = async () => {
   
   isLoadingComments.value = true
   try {
-    const response = await fetch(`http://localhost:3000/posts/${props.post.id}/comments`)
+    const response = await fetch(`/api/posts/${props.post.id}/comments`)
     const data = await response.json()
-    comments.value = data.map(c => ({
-      id: c.id,
-      post_id: c.post_id,
-      user_id: c.user_id,
-      content: c.content,
-      createdAt: c.created_at,
-      user: c.user
-    }))
+    
+    // 直接使用后端返回的评论树结构，只需要转换日期字段格式
+    const convertComments = (comments) => {
+      return comments.map(comment => ({
+        ...comment,
+        createdAt: comment.created_at,
+        subComments: comment.subComments ? convertComments(comment.subComments) : []
+      }))
+    }
+    
+    comments.value = convertComments(data)
   } catch (error) {
     console.error('Failed to fetch comments:', error)
   } finally {
@@ -100,14 +110,14 @@ const handleLike = async () => {
   
   try {
     if (isLiked.value) {
-      await fetch(`http://localhost:3000/posts/${props.post.id}/unlike`, {
+      await fetch(`/api/posts/${props.post.id}/unlike`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: props.currentUser.id })
       })
       likeCount.value = Math.max(0, likeCount.value - 1)
     } else {
-      await fetch(`http://localhost:3000/posts/${props.post.id}/like`, {
+      await fetch(`/api/posts/${props.post.id}/like`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: props.currentUser.id })
@@ -129,14 +139,14 @@ const handleCollect = async () => {
   
   try {
     if (isCollected.value) {
-      await fetch(`http://localhost:3000/posts/${props.post.id}/uncollect`, {
+      await fetch(`/api/posts/${props.post.id}/uncollect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: props.currentUser.id })
       })
       collectCount.value = Math.max(0, collectCount.value - 1)
     } else {
-      await fetch(`http://localhost:3000/posts/${props.post.id}/collect`, {
+      await fetch(`/api/posts/${props.post.id}/collect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: props.currentUser.id })
@@ -160,25 +170,52 @@ const handleSubmitComment = async () => {
   if (!content) return
   
   try {
-    const response = await fetch(`http://localhost:3000/posts/${props.post.id}/comments`, {
+    const response = await fetch(`/api/posts/${props.post.id}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: props.currentUser.id,
-        content: content
+        content: content,
+        parent_id: replyToCommentId.value
       })
     })
     
     const newC = await response.json()
-    comments.value.unshift({
-      id: newC.id,
-      post_id: newC.post_id,
-      user_id: newC.user_id,
-      content: newC.content,
-      createdAt: newC.created_at,
-      user: newC.user
-    })
+    newC.user = props.currentUser
+    
+    if (replyToCommentId.value) {
+      // 如果是回复，需要找到父评论并添加到子评论列表
+      const parentComment = comments.value.find(c => c.id === replyToCommentId.value)
+      if (parentComment) {
+        if (!parentComment.subComments) {
+          parentComment.subComments = []
+        }
+        parentComment.subComments.unshift({
+          id: newC.id,
+          post_id: newC.post_id,
+          user_id: newC.user_id,
+          content: newC.content,
+          createdAt: newC.created_at,
+          user: newC.user,
+          parent_id: replyToCommentId.value
+        })
+      }
+    } else {
+      // 如果是新评论，添加到评论列表顶部
+      comments.value.unshift({
+        id: newC.id,
+        post_id: newC.post_id,
+        user_id: newC.user_id,
+        content: newC.content,
+        createdAt: newC.created_at,
+        user: newC.user
+      })
+    }
+    
     newComment.value = ''
+    // 重置回复目标
+    replyToCommentId.value = null
+    replyToNickname.value = null
     emit('interaction')
   } catch (error) {
     console.error('Failed to post comment:', error)
@@ -189,12 +226,48 @@ const handleDeleteComment = async (commentId) => {
   if (!props.currentUser) return
   
   try {
-    await fetch('http://localhost:3000/posts/comments/' + commentId, {
+    await fetch('/api/posts/comments/' + commentId, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: props.currentUser.id })
     })
-    comments.value = comments.value.filter(c => c.id !== commentId)
+    
+    // 处理顶级评论的删除
+    let deleted = false
+    comments.value = comments.value.filter(c => {
+      if (c.id === commentId) {
+        deleted = true
+        return false
+      }
+      
+      // 处理子评论的删除
+      if (c.subComments && c.subComments.length > 0) {
+        const originalLength = c.subComments.length
+        c.subComments = c.subComments.filter(sc => sc.id !== commentId)
+        if (c.subComments.length < originalLength) {
+          deleted = true
+        }
+      }
+      
+      return true
+    })
+    
+    if (!deleted) {
+      // 如果在顶层和直接子评论中都没找到，可能是嵌套更深的子评论
+      comments.value.forEach(c => {
+        if (c.subComments && c.subComments.length > 0) {
+          c.subComments.forEach(sc => {
+            if (sc.subComments && sc.subComments.length > 0) {
+              const originalLength = sc.subComments.length
+              sc.subComments = sc.subComments.filter(ssc => ssc.id !== commentId)
+              if (sc.subComments.length < originalLength) {
+                deleted = true
+              }
+            }
+          })
+        }
+      })
+    }
   } catch (error) {
     console.error('Failed to delete comment:', error)
   }
@@ -204,6 +277,12 @@ const focusCommentInput = () => {
   if (commentInputRef.value) {
     commentInputRef.value.focus()
   }
+}
+
+const setReplyTarget = (comment) => {
+  replyToCommentId.value = comment.id
+  replyToNickname.value = comment.user.nickname
+  focusCommentInput()
 }
 
 const formatDate = (dateStr) => {
@@ -219,8 +298,66 @@ const formatDate = (dateStr) => {
   return date.toLocaleDateString('zh-CN')
 }
 
+// Check follow status
+const checkFollowStatus = async () => {
+  if (!props.currentUser || !props.post.author_id) return
+  
+  try {
+    const response = await fetch(`/api/auth/following-status?followerId=${props.currentUser.id}&followingId=${props.post.author_id}`)
+    const data = await response.json()
+    if (data.success) {
+      isFollowing.value = data.isFollowing
+    }
+  } catch (error) {
+    console.error('Failed to check follow status:', error)
+  }
+}
+
+// Handle follow/unfollow
+const handleFollow = async () => {
+  if (!props.currentUser) {
+    alert('请先登录')
+    return
+  }
+  
+  if (props.currentUser.id === props.post.author_id) {
+    alert('不能关注自己')
+    return
+  }
+  
+  isFollowLoading.value = true
+  
+  try {
+    const endpoint = isFollowing.value ? 'unfollow' : 'follow'
+    const response = await fetch(`/api/auth/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        followerId: props.currentUser.id,
+        followingId: props.post.author_id
+      })
+    })
+    
+    const data = await response.json()
+    if (data.success) {
+      isFollowing.value = !isFollowing.value
+      emit('interaction')
+    } else {
+      alert(data.message || '操作失败，请重试')
+    }
+  } catch (error) {
+    console.error('Failed to follow/unfollow:', error)
+    alert('网络错误，请重试')
+  } finally {
+    isFollowLoading.value = false
+  }
+}
+
 onMounted(() => {
   fetchComments()
+  checkFollowStatus()
 })
 
 watch(() => props.post.id, () => {
@@ -240,14 +377,16 @@ watch(() => props.post.id, () => {
       
       <!-- Left: Media -->
       <div class="media-section">
-        <div class="media-container" @click="togglePlay">
+        <div class="media-container">
+          <!-- Video post -->
           <template v-if="post.type === 'video'">
             <video 
               ref="videoRef"
-              :src="post.videoUrl"
-              :poster="post.image"
+              :src="post.url"
+              :poster="post.cover_url"
               class="media-content"
               @ended="handleVideoEnded"
+              @click="togglePlay"
             />
             <div v-if="!isPlaying" class="play-overlay">
               <svg class="play-icon" viewBox="0 0 24 24" fill="white">
@@ -255,8 +394,42 @@ watch(() => props.post.id, () => {
               </svg>
             </div>
           </template>
-          <template v-else>
-            <img :src="post.image" :alt="post.title" class="media-content" />
+          
+          <!-- Image post (support multiple images) -->
+          <template v-else-if="post.type === 'image'">
+            <div v-if="post.urls && post.urls.length > 1" class="image-grid">
+              <img 
+                v-for="(imageUrl, index) in post.urls" 
+                :key="index"
+                :src="imageUrl"
+                :alt="`${post.title} - 图片 ${index + 1}`"
+                class="media-content"
+              />
+            </div>
+            <img 
+              v-else
+              :src="post.url || post.cover_url"
+              :alt="post.title"
+              class="media-content"
+            />
+          </template>
+          
+          <!-- Article post -->
+          <template v-else-if="post.type === 'article'">
+            <div class="article-container">
+              <div class="article-cover">
+                <img 
+                  v-if="post.cover_url"
+                  :src="post.cover_url"
+                  :alt="post.title"
+                  class="article-cover-image"
+                />
+              </div>
+              <div class="article-preview">
+                <h2 class="article-title">{{ post.title }}</h2>
+                <p class="article-excerpt">{{ post.description || '点击查看全文' }}</p>
+              </div>
+            </div>
           </template>
         </div>
       </div>
@@ -265,16 +438,30 @@ watch(() => props.post.id, () => {
       <div class="details-section">
         <!-- Author info -->
         <div class="author-header">
-          <img :src="post.avatar" :alt="post.user" class="author-avatar" />
-          <span class="author-name">{{ post.user }}</span>
-          <button class="follow-btn">关注</button>
+          <img :src="post.author_avatar" :alt="post.author" class="author-avatar" />
+          <span class="author-name">{{ post.author }}</span>
+          <button 
+            class="follow-btn" 
+            :class="{ 'following': isFollowing }" 
+            @click="handleFollow" 
+            :disabled="isFollowLoading"
+          >
+            <span v-if="isFollowLoading" class="follow-btn-loading">
+              <svg class="loading-spinner" viewBox="0 0 24 24" fill="currentColor">
+                <circle class="spinner-path" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round"/>
+              </svg>
+              处理中...
+            </span>
+            <span v-else-if="isFollowing">已关注</span>
+            <span v-else>关注</span>
+          </button>
         </div>
         
         <!-- Content -->
         <div class="content-area">
           <h2 class="post-title">{{ post.title }}</h2>
           <p class="post-description">{{ post.description || '' }}</p>
-          <p class="post-date">{{ new Date(post.createdAt).toLocaleDateString('zh-CN') }}</p>
+          <p class="post-date">{{ new Date(post.created_at).toLocaleDateString('zh-CN') }}</p>
         </div>
         
         <!-- Comments section -->
@@ -289,16 +476,75 @@ watch(() => props.post.id, () => {
               <div class="comment-content">
                 <div class="comment-header">
                   <span class="comment-username">{{ comment.user.nickname }}</span>
-                  <span class="comment-time">{{ formatDate(comment.createdAt) }}</span>
                 </div>
                 <p class="comment-text">{{ comment.content }}</p>
-                <button 
-                  v-if="currentUser && comment.user_id === currentUser.id" 
-                  @click="handleDeleteComment(comment.id)" 
-                  class="delete-comment-btn"
-                >
-                  删除
-                </button>
+                <div class="comment-footer">
+                  <span class="comment-time">{{ formatDate(comment.createdAt) }}</span>
+                  <button 
+                    v-if="currentUser" 
+                    @click="setReplyTarget(comment)" 
+                    class="reply-comment-btn"
+                  >
+                    回复
+                  </button>
+                  <div class="comment-actions">
+                    <button 
+                      v-if="currentUser && comment.user_id === currentUser.id" 
+                      @click="showDeleteMenu = showDeleteMenu === comment.id ? null : comment.id" 
+                      class="comment-actions-btn"
+                    >
+                      ⋮
+                    </button>
+                    <div v-if="showDeleteMenu === comment.id" class="delete-menu">
+                      <button 
+                        @click="handleDeleteComment(comment.id); showDeleteMenu = null" 
+                        class="delete-menu-btn"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Sub comments -->
+                <div v-if="comment.subComments && comment.subComments.length > 0" class="sub-comments">
+                  <div v-for="subComment in comment.subComments" :key="subComment.id" class="sub-comment-item">
+                    <img :src="subComment.user.avatar" :alt="subComment.user.nickname" class="sub-comment-avatar" />
+                    <div class="sub-comment-content">
+                      <div class="sub-comment-main">
+                        <span class="sub-comment-username">{{ subComment.user.nickname }}</span>
+                        <span class="sub-comment-text">{{ subComment.content }}</span>
+                      </div>
+                      <div class="sub-comment-footer">
+                        <span class="sub-comment-time">{{ formatDate(subComment.createdAt) }}</span>
+                        <button 
+                          v-if="currentUser" 
+                          @click="setReplyTarget(subComment)" 
+                          class="reply-comment-btn"
+                        >
+                          回复
+                        </button>
+                        <div class="comment-actions">
+                          <button 
+                            v-if="currentUser && subComment.user_id === currentUser.id" 
+                            @click="showDeleteMenu = showDeleteMenu === subComment.id ? null : subComment.id" 
+                            class="comment-actions-btn"
+                          >
+                            ⋮
+                          </button>
+                          <div v-if="showDeleteMenu === subComment.id" class="delete-menu">
+                            <button 
+                              @click="handleDeleteComment(subComment.id); showDeleteMenu = null" 
+                              class="delete-menu-btn"
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <p v-if="comments.length === 0" class="no-comments">暂无评论，快来发表你的看法吧~</p>
@@ -311,7 +557,7 @@ watch(() => props.post.id, () => {
             <input 
               ref="commentInputRef"
               type="text" 
-              placeholder="说点什么..." 
+              :placeholder="replyToNickname ? `回复 ${replyToNickname}` : '说点什么...'" 
               class="comment-input" 
               v-model="newComment"
               @keyup.enter="handleSubmitComment"
@@ -323,7 +569,7 @@ watch(() => props.post.id, () => {
               :class="{ active: isLiked }" 
               @click="handleLike"
             >
-              <svg viewBox="0 0 24 24" :fill="isLiked ? '#ff2442' : 'none'" :stroke="isLiked ? '#ff2442' : 'currentColor'" stroke-width="2">
+              <svg viewBox="0 0 24 24" :fill="isLiked ? 'var(--primary-color)' : 'none'" :stroke="isLiked ? 'var(--primary-color)' : 'currentColor'" stroke-width="2">
                 <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
               </svg>
               <span>{{ formattedLikes }}</span>
@@ -333,7 +579,7 @@ watch(() => props.post.id, () => {
               :class="{ active: isCollected }" 
               @click="handleCollect"
             >
-              <svg viewBox="0 0 24 24" :fill="isCollected ? '#ff2442' : 'none'" :stroke="isCollected ? '#ff2442' : 'currentColor'" stroke-width="2">
+              <svg viewBox="0 0 24 24" :fill="isCollected ? 'var(--primary-color)' : 'none'" :stroke="isCollected ? 'var(--primary-color)' : 'currentColor'" stroke-width="2">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
               </svg>
               <span>{{ formattedCollects }}</span>
@@ -367,7 +613,7 @@ watch(() => props.post.id, () => {
 
 .post-detail-modal {
   display: flex;
-  background: #fff;
+  background: var(--white);
   border-radius: 12px;
   overflow: hidden;
   max-width: 90vw;
@@ -395,17 +641,17 @@ watch(() => props.post.id, () => {
 .close-btn svg {
   width: 20px;
   height: 20px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .close-btn:hover {
-  background: #fff;
+  background: var(--white);
 }
 
 /* Left media section */
 .media-section {
   flex: 1;
-  background: #000;
+  background: rgba(0, 0, 0, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -448,14 +694,14 @@ watch(() => props.post.id, () => {
   width: 400px;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--white);
 }
 
 .author-header {
   display: flex;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .author-avatar {
@@ -470,38 +716,89 @@ watch(() => props.post.id, () => {
   margin-left: 12px;
   font-size: 15px;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .follow-btn {
   padding: 6px 16px;
-  background: #ff2442;
-  color: #fff;
+  background: var(--primary-color);
+  color: var(--text-primary);
   border-radius: 20px;
   font-size: 13px;
   font-weight: 500;
 }
 
 .follow-btn:hover {
-  background: #e0203a;
+  background: rgba(var(--primary-color-rgb), 0.9);
+}
+
+.follow-btn.following {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text-secondary);
+}
+
+.follow-btn.following:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--primary-color);
+}
+
+.follow-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.follow-btn-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loading-spinner {
+  width: 14px;
+  height: 14px;
+  animation: spin 1s linear infinite;
+}
+
+.spinner-path {
+  animation: dash 1.5s ease-in-out infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes dash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -124;
+  }
 }
 
 .content-area {
   padding: 16px 20px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .post-title {
   font-size: 17px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   margin: 0 0 12px 0;
   line-height: 1.5;
 }
 
 .post-description {
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.6;
   margin: 0 0 12px 0;
   white-space: pre-wrap;
@@ -509,7 +806,7 @@ watch(() => props.post.id, () => {
 
 .post-date {
   font-size: 12px;
-  color: #999;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -522,20 +819,20 @@ watch(() => props.post.id, () => {
 .comments-title {
   font-size: 14px;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
   margin: 0 0 16px 0;
 }
 
 .no-comments {
   text-align: center;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 13px;
   padding: 40px 0;
 }
 
 .loading-comments {
   text-align: center;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 13px;
   padding: 40px 0;
 }
@@ -559,59 +856,187 @@ watch(() => props.post.id, () => {
 }
 
 .comment-header {
-  display: flex;
-  align-items: center;
   margin-bottom: 4px;
 }
 
 .comment-username {
   font-size: 13px;
   font-weight: 500;
-  color: #333;
-  margin-right: 8px;
+  color: var(--text-primary);
 }
 
 .comment-time {
   font-size: 12px;
-  color: #999;
+  color: var(--text-secondary);
+  margin-right: 12px;
 }
 
 .comment-text {
   font-size: 14px;
-  color: #666;
-  line-height: 1.5;
-  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin: 0 0 6px 0;
+  word-break: break-word;
+}
+
+.comment-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
 }
 
 .delete-comment-btn {
   font-size: 12px;
-  color: #999;
+  color: var(--text-secondary);
   background: none;
   border: none;
   cursor: pointer;
-  margin-top: 4px;
   padding: 0;
+  margin-left: 12px;
 }
 
 .delete-comment-btn:hover {
-  color: #ff2442;
+  color: var(--primary-color);
+}
+
+.reply-comment-btn {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.reply-comment-btn:hover {
+  color: var(--primary-color);
+}
+
+/* Comment actions */
+.comment-actions {
+  position: relative;
+  margin-left: auto;
+}
+
+.comment-actions-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.comment-actions-btn:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text-primary);
+}
+
+.delete-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  background: var(--white);
+  border-radius: 4px;
+  box-shadow: var(--shadow-md);
+  padding: 4px 0;
+  z-index: 10;
+  min-width: 80px;
+}
+
+.delete-menu-btn {
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: none;
+  color: var(--primary-color);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.delete-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+/* Sub comments */
+.sub-comments {
+  margin-left: 0px;
+  margin-top: 8px;
+}
+
+.sub-comment-item {
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.sub-comment-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  margin-right: 8px;
+  margin-top: 2px;
+}
+
+.sub-comment-content {
+  flex: 1;
+}
+
+.sub-comment-main {
+  margin-bottom: 2px;
+}
+
+.sub-comment-username {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-right: 6px;
+}
+
+.sub-comment-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.sub-comment-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.sub-comment-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-right: 12px;
 }
 
 .action-item.active {
-  color: #ff2442;
+  color: var(--primary-color);
 }
 
 .action-item.active svg {
-  color: #ff2442;
+  color: var(--primary-color);
 }
 
 .action-item:hover {
-  color: #ff2442;
+  color: var(--primary-color);
 }
 
 .actions-bar {
   padding: 12px 20px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   gap: 16px;
@@ -624,14 +1049,16 @@ watch(() => props.post.id, () => {
 .comment-input {
   width: 100%;
   padding: 10px 16px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 20px;
   font-size: 14px;
   outline: none;
+  background: var(--white);
+  color: var(--text-primary);
 }
 
 .comment-input:focus {
-  border-color: #ff2442;
+  border-color: var(--primary-color);
 }
 
 .action-buttons {
@@ -643,7 +1070,7 @@ watch(() => props.post.id, () => {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 

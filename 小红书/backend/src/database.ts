@@ -32,6 +32,7 @@ export interface Comment {
   user_id: number;
   content: string;
   created_at: string;
+  parent_id?: number;
 }
 
 export interface Like {
@@ -48,17 +49,26 @@ export interface Collection {
   created_at: string;
 }
 
+export interface Follow {
+  id: number;
+  follower_id: number;
+  following_id: number;
+  created_at: string;
+}
+
 interface Database {
   users: User[];
   posts: Post[];
   comments: Comment[];
   likes: Like[];
   collections: Collection[];
+  follows: Follow[];
   userIdCounter: number;
   postIdCounter: number;
   commentIdCounter: number;
   likeIdCounter: number;
   collectionIdCounter: number;
+  followIdCounter: number;
 }
 
 // Initialize or load database
@@ -72,11 +82,13 @@ const initDb = (): Database => {
       comments: parsed.comments || [],
       likes: parsed.likes || [],
       collections: parsed.collections || [],
+      follows: parsed.follows || [],
       userIdCounter: parsed.userIdCounter || 1,
       postIdCounter: parsed.postIdCounter || 1,
       commentIdCounter: parsed.commentIdCounter || 1,
       likeIdCounter: parsed.likeIdCounter || 1,
-      collectionIdCounter: parsed.collectionIdCounter || 1
+      collectionIdCounter: parsed.collectionIdCounter || 1,
+      followIdCounter: parsed.followIdCounter || 1
     };
   }
   return {
@@ -85,11 +97,13 @@ const initDb = (): Database => {
     comments: [],
     likes: [],
     collections: [],
+    follows: [],
     userIdCounter: 1,
     postIdCounter: 1,
     commentIdCounter: 1,
     likeIdCounter: 1,
-    collectionIdCounter: 1
+    collectionIdCounter: 1,
+    followIdCounter: 1
   };
 };
 
@@ -168,29 +182,54 @@ export const database = {
 
   // Comment operations
   getCommentsByPostId: (postId: number) => {
-    return db.comments
+    // Get all comments for the post
+    const postComments = db.comments
       .filter(c => c.post_id === postId)
       .map(c => {
         const user = database.findUserById(c.user_id);
         return {
-          id: c.id,
-          post_id: c.post_id,
-          user_id: c.user_id,
-          content: c.content,
-          created_at: c.created_at,
-          user: user
+          ...c,
+          user: user,
+          subComments: [] as any[]
         };
-      })
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      });
+
+    // Build comment tree structure
+    const commentTree = [];
+    const commentMap = new Map<number, any>();
+
+    // First pass: add all comments to map and add top-level comments to tree
+    postComments.forEach(comment => {
+      commentMap.set(comment.id, comment);
+      if (!comment.parent_id) {
+        commentTree.push(comment);
+      }
+    });
+
+    // Second pass: add replies to their parent comments
+    postComments.forEach(comment => {
+      if (comment.parent_id) {
+        const parent = commentMap.get(comment.parent_id);
+        if (parent) {
+          parent.subComments.push(comment);
+        }
+      }
+    });
+
+    // Sort top-level comments by created_at (descending)
+    commentTree.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return commentTree;
   },
 
-  createComment: (postId: number, userId: number, content: string) => {
+  createComment: (postId: number, userId: number, content: string, parent_id?: number) => {
     const newComment: Comment = {
       id: db.commentIdCounter++,
       post_id: postId,
       user_id: userId,
       content,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      parent_id
     };
     db.comments.push(newComment);
     saveDb();
@@ -292,5 +331,56 @@ export const database = {
 
   getCollectionCount: (postId: number): number => {
     return db.collections.filter(c => c.post_id === postId).length;
+  },
+
+  isFollowing: (followerId: number, followingId: number): boolean => {
+    return db.follows.some(f => f.follower_id === followerId && f.following_id === followingId);
+  },
+
+  followUser: (followerId: number, followingId: number): boolean => {
+    if (followerId === followingId) return false;
+    if (database.isFollowing(followerId, followingId)) return false;
+    
+    const newFollow: Follow = {
+      id: db.followIdCounter++,
+      follower_id: followerId,
+      following_id: followingId,
+      created_at: new Date().toISOString()
+    };
+    
+    db.follows.push(newFollow);
+    saveDb();
+    return true;
+  },
+
+  unfollowUser: (followerId: number, followingId: number): boolean => {
+    const followIndex = db.follows.findIndex(f => f.follower_id === followerId && f.following_id === followingId);
+    if (followIndex === -1) return false;
+    
+    db.follows.splice(followIndex, 1);
+    saveDb();
+    return true;
+  },
+
+  getFollowers: (userId: number): User[] => {
+    return db.follows
+      .filter(f => f.following_id === userId)
+      .map(f => database.findUserById(f.follower_id))
+      .filter(u => u !== undefined) as User[];
+  },
+
+  getFollowing: (userId: number): User[] => {
+    return db.follows
+      .filter(f => f.follower_id === userId)
+      .map(f => database.findUserById(f.following_id))
+      .filter(u => u !== undefined) as User[];
+  },
+
+  getFollowersCount: (userId: number): number => {
+    return db.follows.filter(f => f.following_id === userId).length;
+  },
+
+  getFollowingCount: (userId: number): number => {
+    return db.follows.filter(f => f.follower_id === userId).length;
   }
 };

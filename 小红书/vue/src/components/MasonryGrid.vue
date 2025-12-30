@@ -6,6 +6,10 @@ const props = defineProps({
   items: {
     type: Array,
     required: true
+  },
+  currentUser: {
+    type: Object,
+    default: null
   }
 })
 
@@ -63,6 +67,7 @@ onUnmounted(() => {
         v-for="item in col" 
         :key="item.id" 
         :post="item" 
+        :current-user="currentUser"
         @open-detail="$emit('open-detail', $event)"
       />
     </div>

@@ -1,16 +1,105 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   post: {
     type: Object,
     required: true
+  },
+  currentUser: {
+    type: Object,
+    default: null
   }
 })
 
 const emit = defineEmits(['open-detail'])
 const isLiked = ref(props.post.likeStatus || false)
 const likeCount = ref(props.post.likeCount || props.post.likes || 0)
+const isFollowing = ref(false)
+const isFollowLoading = ref(false)
+
+console.log('PostCard.vue - Props:', { currentUser: props.currentUser, post: props.post })
+
+// Check follow status when component mounts or currentUser changes
+const checkFollowStatus = async () => {
+  console.log('Checking follow status:', { currentUser: props.currentUser, authorId: props.post?.author_id })
+  if (!props.currentUser || !props.post?.author_id) {
+    console.log('Cannot check follow status - missing required data')
+    return
+  }
+  
+  try {
+    const response = await fetch(`/api/auth/following-status?followerId=${props.currentUser.id}&followingId=${props.post.author_id}`)
+    const data = await response.json()
+    console.log('Follow status response:', data)
+    isFollowing.value = data.isFollowing || false
+  } catch (error) {
+    console.error('Failed to check follow status:', error)
+  }
+}
+
+// Follow/unfollow user
+const handleFollow = async (event) => {
+  console.log('Handle follow clicked:', event)
+  event.stopPropagation() // Prevent card click event
+  
+  console.log('Current user:', props.currentUser)
+  console.log('Post author_id:', props.post?.author_id)
+  
+  if (!props.currentUser) {
+    // Show login modal or prompt user to login
+    console.log('User not logged in, redirecting to login')
+    window.location.href = '#login' // This is a placeholder, should use actual login flow
+    return
+  }
+  
+  if (!props.post?.author_id) {
+    console.log('Missing author_id, cannot follow')
+    alert('缺少作者ID，无法关注')
+    return
+  }
+  
+  console.log('Follow action data:', {
+    currentUser: props.currentUser,
+    authorId: props.post.author_id,
+    isFollowing: isFollowing.value,
+    endpoint: isFollowing.value ? 'unfollow' : 'follow'
+  })
+  
+  isFollowLoading.value = true
+  
+  try {
+    const endpoint = isFollowing.value ? 'unfollow' : 'follow'
+    const response = await fetch(`/api/auth/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        followerId: props.currentUser.id,
+        followingId: props.post.author_id
+      })
+    })
+    
+    const data = await response.json()
+    console.log('Follow/unfollow response:', data)
+    if (data.success) {
+      isFollowing.value = !isFollowing.value
+      console.log('Follow status updated:', isFollowing.value)
+    } else {
+      alert(data.message || '操作失败，请重试')
+    }
+  } catch (error) {
+    console.error('Failed to follow/unfollow:', error)
+    alert('网络错误，请重试')
+  } finally {
+    isFollowLoading.value = false
+    console.log('Follow loading complete')
+  }
+}
+
+// Check follow status when component mounts or props change
+watch(() => [props.currentUser, props.post], checkFollowStatus, { immediate: true, deep: true })
 
 const formattedLikes = computed(() => {
   const num = likeCount.value
@@ -25,11 +114,11 @@ const heartClass = computed(() => {
 })
 
 const heartFill = computed(() => {
-  return isLiked.value ? '#ff2442' : 'none'
+  return isLiked.value ? 'var(--primary-color)' : 'none'
 })
 
 const heartColor = computed(() => {
-  return isLiked.value ? '#ff2442' : 'currentColor'
+  return isLiked.value ? 'var(--primary-color)' : 'currentColor'
 })
 
 const handleCardClick = () => {
@@ -40,7 +129,7 @@ const handleCardClick = () => {
 <template>
   <div class="post-card" @click="handleCardClick">
     <div class="media-container">
-      <img :src="post.image" :alt="post.title" class="cover-image" loading="lazy" />
+        <img :src="post.cover_url || post.url" :alt="post.title" class="cover-image" loading="lazy" />
       
       <!-- Video play icon in top-right corner -->
       <div v-if="post.type === 'video'" class="video-badge">
@@ -55,8 +144,19 @@ const handleCardClick = () => {
       
       <div class="card-footer">
         <div class="user-info">
-          <img :src="post.avatar" :alt="post.user" class="avatar" />
-          <span class="username">{{ post.user }}</span>
+          <img :src="post.author_avatar" :alt="post.author" class="avatar" />
+          <span class="username">{{ post.author }}</span>
+          <button 
+            v-if="currentUser && post.author_id !== currentUser.id" 
+            class="follow-btn" 
+            :class="{ 'following': isFollowing }"
+            @click="handleFollow"
+            :disabled="isFollowLoading"
+          >
+            <span v-if="isFollowLoading">处理中...</span>
+            <span v-else-if="isFollowing">已关注</span>
+            <span v-else>关注</span>
+          </button>
         </div>
         
         <div class="like-info">
@@ -140,7 +240,7 @@ const handleCardClick = () => {
   font-weight: 500;
   line-height: 1.5;
   margin: 0 0 8px 0;
-  color: #333;
+  color: var(--text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -152,7 +252,7 @@ const handleCardClick = () => {
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .user-info {
@@ -160,6 +260,7 @@ const handleCardClick = () => {
   align-items: center;
   flex: 1;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .avatar {
@@ -175,8 +276,41 @@ const handleCardClick = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 12px;
+  margin-right: 6px;
+}
+
+.follow-btn {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--primary-color);
+  color: var(--primary-color);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.follow-btn:hover {
+  background: rgba(var(--primary-color-rgb), 0.05);
+}
+
+.follow-btn.following {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+.follow-btn.following:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: rgba(var(--primary-color-rgb), 0.05);
+}
+
+.follow-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .like-info {
@@ -190,12 +324,12 @@ const handleCardClick = () => {
   width: 14px;
   height: 14px;
   margin-right: 4px;
-  color: #999;
+  color: var(--text-secondary);
   transition: all 0.2s ease;
 }
 
 .heart-icon.liked {
-  color: #ff2442;
+  color: var(--primary-color);
 }
 
 .heart-icon:hover {
@@ -203,7 +337,7 @@ const handleCardClick = () => {
 }
 
 .like-count {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 </style>

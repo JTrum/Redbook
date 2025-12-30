@@ -13,6 +13,9 @@ const videoFile = ref(null)
 const videoUrl = ref('')
 const coverUrl = ref('')
 const videoInfo = ref(null)
+const images = ref([]) // 存储图片文件和信息
+const imageUrls = ref([]) // 存储图片预览URL
+const articleCoverUrl = ref('') // 长文封面
 const title = ref('')
 const content = ref('')
 const publishType = ref('immediate') // 'immediate' or 'scheduled'
@@ -22,6 +25,7 @@ const showSettings = ref(false)
 
 const fileInputRef = ref(null)
 const coverInputRef = ref(null)
+const imageInputRef = ref(null) // 图文类型的图片输入
 const coverSource = ref('auto') // 'auto' or 'manual'
 const manualCoverUrl = ref('')
 
@@ -141,6 +145,64 @@ const selectManualCover = () => {
   }
 }
 
+// 图文类型的图片处理函数
+const handleImageSelect = (event) => {
+  const files = event.target.files
+  if (!files || files.length === 0) return
+  
+  processImageFiles(files)
+}
+
+const handleImageDrop = (event) => {
+  event.preventDefault()
+  const files = event.dataTransfer.files
+  const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'))
+  if (imageFiles.length > 0) {
+    processImageFiles(imageFiles)
+  }
+}
+
+const processImageFiles = (files) => {
+  isUploading.value = true
+  
+  Array.from(files).forEach(file => {
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        images.value.push(file)
+        imageUrls.value.push(e.target.result)
+        isUploading.value = false
+      }
+      reader.readAsDataURL(file)
+    }
+  })
+}
+
+const triggerImageInput = () => {
+  imageInputRef.value?.click()
+}
+
+const removeImage = (index) => {
+  images.value.splice(index, 1)
+  imageUrls.value.splice(index, 1)
+}
+
+// 长文类型的封面上传
+const handleArticleCoverUpload = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    articleCoverUrl.value = e.target.result
+  }
+  reader.readAsDataURL(file)
+}
+
+const triggerArticleCoverInput = () => {
+  document.getElementById('article-cover-input')?.click()
+}
+
 // Get the active cover URL based on selection
 const activeCoverUrl = computed(() => {
   return coverSource.value === 'manual' && manualCoverUrl.value 
@@ -149,63 +211,131 @@ const activeCoverUrl = computed(() => {
 })
 
 const handlePublish = async () => {
-  if (!videoFile.value || !title.value.trim()) {
-    alert('请上传视频并填写标题')
+  if (!title.value.trim()) {
+    alert('请填写标题')
     return
   }
   
   try {
-    // 1. Upload video file
-    const videoFormData = new FormData()
-    videoFormData.append('file', videoFile.value)
-    
-    const uploadRes = await fetch('http://localhost:3000/posts/upload', {
-      method: 'POST',
-      body: videoFormData
-    })
-    const uploadData = await uploadRes.json()
-    
-    // 2. Upload cover image (convert dataURL to blob)
-    let coverImageUrl = ''
-    const coverToUpload = coverSource.value === 'manual' && manualCoverUrl.value 
-      ? manualCoverUrl.value 
-      : coverUrl.value
-    
-    if (coverToUpload) {
-      const coverBlob = await fetch(coverToUpload).then(r => r.blob())
-      const coverFormData = new FormData()
-      coverFormData.append('file', coverBlob, 'cover.jpg')
-      
-      const coverRes = await fetch('http://localhost:3000/posts/upload', {
-        method: 'POST',
-        body: coverFormData
-      })
-      const coverData = await coverRes.json()
-      coverImageUrl = coverData.url
+    let postData = {
+      title: title.value,
+      content: content.value,
+      author_id: props.currentUser?.id || 0
     }
     
-    // 3. Create post with video and cover URLs
-    const postRes = await fetch('http://localhost:3000/posts', {
+    // 根据不同的发布类型处理
+    switch (activeTab.value) {
+      case 'video':
+        if (!videoFile.value) {
+          alert('请上传视频')
+          return
+        }
+        
+        // 1. Upload video file
+        const videoFormData = new FormData()
+        videoFormData.append('file', videoFile.value)
+        
+        const uploadRes = await fetch('/api/posts/upload', {
+          method: 'POST',
+          body: videoFormData
+        })
+        const uploadData = await uploadRes.json()
+        
+        // 2. Upload cover image
+        let coverImageUrl = ''
+        const coverToUpload = coverSource.value === 'manual' && manualCoverUrl.value 
+          ? manualCoverUrl.value 
+          : coverUrl.value
+        
+        if (coverToUpload) {
+          const coverBlob = await fetch(coverToUpload).then(r => r.blob())
+          const coverFormData = new FormData()
+          coverFormData.append('file', coverBlob, 'cover.jpg')
+          
+          const coverRes = await fetch('/api/posts/upload', {
+            method: 'POST',
+            body: coverFormData
+          })
+          const coverData = await coverRes.json()
+          coverImageUrl = coverData.url
+        }
+        
+        postData = {
+          ...postData,
+          type: 'video',
+          url: uploadData.url,
+          cover_url: coverImageUrl
+        }
+        break
+        
+      case 'image':
+        if (images.value.length === 0) {
+          alert('请上传图片')
+          return
+        }
+        
+        // 1. Upload images
+        const imageUrls = []
+        for (const image of images.value) {
+          const imageFormData = new FormData()
+          imageFormData.append('file', image)
+          
+          const uploadRes = await fetch('/api/posts/upload', {
+            method: 'POST',
+            body: imageFormData
+          })
+          const uploadData = await uploadRes.json()
+          imageUrls.push(uploadData.url)
+        }
+        
+        postData = {
+          ...postData,
+          type: 'image',
+          urls: imageUrls,
+          cover_url: imageUrls[0] // 使用第一张图片作为封面
+        }
+        break
+        
+      case 'article':
+        if (!content.value.trim()) {
+          alert('请填写文章内容')
+          return
+        }
+        
+        // 1. Upload cover image if exists
+        let articleCoverImageUrl = ''
+        if (articleCoverUrl.value) {
+          const coverBlob = await fetch(articleCoverUrl.value).then(response => response.blob())
+          const coverFormData = new FormData()
+          coverFormData.append('file', coverBlob, 'article_cover.jpg')
+          
+          const coverRes = await fetch('/api/posts/upload', {
+            method: 'POST',
+            body: coverFormData
+          })
+          const coverData = await coverRes.json()
+          articleCoverImageUrl = coverData.url
+        }
+        
+        postData = {
+          ...postData,
+          type: 'article',
+          cover_url: articleCoverImageUrl
+        }
+        break
+    }
+    
+    // Create post
+    const postRes = await fetch('/api/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: title.value,
-        type: 'video',
-        url: uploadData.url,
-        cover_url: coverImageUrl,
-        author_id: props.currentUser?.id || 0
-      })
+      body: JSON.stringify(postData)
     })
     
     if (postRes.ok) {
       alert('发布成功！')
       // Reset form
-      videoFile.value = null
-      videoUrl.value = ''
-      coverUrl.value = ''
-      videoInfo.value = null
-      title.value = ''
-      content.value = ''
+      resetForm()
     }
   } catch (error) {
     console.error('Publish error:', error)
@@ -213,9 +343,46 @@ const handlePublish = async () => {
   }
 }
 
+// Reset form based on active tab
+const resetForm = () => {
+  title.value = ''
+  content.value = ''
+  
+  switch (activeTab.value) {
+    case 'video':
+      videoFile.value = null
+      videoUrl.value = ''
+      coverUrl.value = ''
+      manualCoverUrl.value = ''
+      coverSource.value = 'auto'
+      videoInfo.value = null
+      break
+      
+    case 'image':
+      images.value = []
+      imageUrls.value = []
+      break
+      
+    case 'article':
+      articleCoverUrl.value = ''
+      break
+  }
+}
+
 
 const canPublish = computed(() => {
-  return videoFile.value && title.value.trim().length > 0
+  if (!title.value.trim()) return false
+  
+  switch (activeTab.value) {
+    case 'video':
+      return videoFile.value !== null
+    case 'image':
+      return images.value.length > 0
+    case 'article':
+      return content.value.trim().length > 0
+    default:
+      return false
+  }
 })
 </script>
 
@@ -234,6 +401,21 @@ const canPublish = computed(() => {
       type="file" 
       accept="image/*" 
       @change="handleCoverUpload" 
+      style="display: none"
+    />
+    <input 
+      ref="imageInputRef"
+      type="file" 
+      accept="image/*" 
+      multiple
+      @change="handleImageSelect" 
+      style="display: none"
+    />
+    <input 
+      id="article-cover-input"
+      type="file" 
+      accept="image/*" 
+      @change="handleArticleCoverUpload" 
       style="display: none"
     />
     
@@ -259,88 +441,309 @@ const canPublish = computed(() => {
           <span class="drafts">草稿箱(0)</span>
         </div>
 
-        <!-- Video Upload Section (Before upload) -->
-        <template v-if="!videoFile">
-          <div 
-            class="upload-area"
-            @drop="handleDrop"
-            @dragover="handleDragOver"
-            @click="triggerFileInput"
-          >
-            <div class="upload-content">
-              <div class="cloud-icon">
-                <svg viewBox="0 0 24 24" width="64" height="64" fill="#e0e0e0">
-                  <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
-                </svg>
+        <!-- Video Upload Section -->
+        <template v-if="activeTab === 'video'">
+          <!-- Before upload -->
+          <template v-if="!videoFile">
+            <div 
+              class="upload-area"
+              @drop="handleDrop"
+              @dragover="handleDragOver"
+              @click="triggerFileInput"
+            >
+              <div class="upload-content">
+                <div class="cloud-icon">
+                  <svg viewBox="0 0 24 24" width="64" height="64" fill="#e0e0e0">
+                    <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                  </svg>
+                </div>
+                <p class="upload-text">拖拽视频到此或点击上传</p>
+                <button class="upload-btn" @click.stop="triggerFileInput">上传视频</button>
               </div>
-              <p class="upload-text">拖拽视频到此或点击上传</p>
-              <button class="upload-btn" @click.stop="triggerFileInput">上传视频</button>
             </div>
-          </div>
 
-          <div class="specs-grid">
-            <div class="spec-item">
-              <h3>视频大小</h3>
-              <p>支持时长60分钟以内，最大20GB的视频文件</p>
+            <div class="specs-grid">
+              <div class="spec-item">
+                <h3>视频大小</h3>
+                <p>支持时长60分钟以内，最大20GB的视频文件</p>
+              </div>
+              <div class="spec-item">
+                <h3>视频格式</h3>
+                <p>支持常用视频格式，推荐使用mp4、mov</p>
+              </div>
+              <div class="spec-item">
+                <h3>视频分辨率</h3>
+                <p>推荐上传720P（1280*720）及以上视频</p>
+              </div>
             </div>
-            <div class="spec-item">
-              <h3>视频格式</h3>
-              <p>支持常用视频格式，推荐使用mp4、mov</p>
+          </template>
+
+          <!-- After upload -->
+          <template v-else>
+            <div class="edit-form">
+              <!-- Video Info -->
+              <div class="video-info-section">
+                <div class="video-info-header">
+                  <span class="file-name">{{ videoInfo?.name }}</span>
+                  <button class="replace-btn" @click="replaceVideo">替换视频</button>
+                </div>
+                <div class="video-meta">
+                  <span class="success-badge">✓ 上传成功</span>
+                  <span>视频大小：{{ videoInfo?.size }}</span>
+                  <span>视频时长：{{ videoInfo?.duration }}</span>
+                </div>
+              </div>
+
+              <!-- Cover Section -->
+              <div class="section">
+                <h3 class="section-title">封面设置</h3>
+                <div class="cover-options">
+                  <!-- Auto-captured cover -->
+                  <div 
+                    class="cover-option" 
+                    :class="{ selected: coverSource === 'auto' }"
+                    @click="selectAutoCover"
+                  >
+                    <img v-if="coverUrl" :src="coverUrl" alt="自动截取" class="cover-image" />
+                    <div v-else class="cover-placeholder">截取中...</div>
+                    <span class="cover-label">自动截取</span>
+                    <div v-if="coverSource === 'auto'" class="cover-check">✓</div>
+                  </div>
+                  
+                  <!-- Manual upload cover -->
+                  <div 
+                    class="cover-option" 
+                    :class="{ selected: coverSource === 'manual' && manualCoverUrl }"
+                    @click="selectManualCover"
+                  >
+                    <img v-if="manualCoverUrl" :src="manualCoverUrl" alt="手动上传" class="cover-image" />
+                    <div v-else class="cover-placeholder upload-hint">
+                      <svg viewBox="0 0 24 24" width="24" height="24" fill="#999">
+                        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                      </svg>
+                      <span>上传封面</span>
+                    </div>
+                    <span class="cover-label">{{ manualCoverUrl ? '手动上传' : '点击上传' }}</span>
+                    <div v-if="coverSource === 'manual' && manualCoverUrl" class="cover-check">✓</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Title -->
+              <div class="section">
+                <h3 class="section-title">标题 <span class="char-count">{{ title.length }}/20</span></h3>
+                <input 
+                  v-model="title"
+                  type="text" 
+                  class="title-input"
+                  placeholder="填写标题会有更多赞哦～"
+                  maxlength="20"
+                />
+              </div>
+
+              <!-- Content -->
+              <div class="section">
+                <h3 class="section-title">正文内容</h3>
+                <textarea 
+                  v-model="content"
+                  class="content-input"
+                  placeholder="输入正文描述，真诚有价值的分享予人温暖"
+                  rows="4"
+                ></textarea>
+              </div>
+
+              <!-- Settings Toggle -->
+              <div class="section">
+                <button class="settings-toggle" @click="showSettings = !showSettings">
+                  更多设置
+                  <span :class="{ 'rotate': showSettings }">▼</span>
+                </button>
+                
+                <div v-if="showSettings" class="settings-panel">
+                  <div class="setting-row">
+                    <span class="setting-label">发布时间</span>
+                    <div class="publish-options">
+                      <label class="radio-option">
+                        <input type="radio" v-model="publishType" value="immediate" />
+                        <span>立即发布</span>
+                      </label>
+                      <label class="radio-option">
+                        <input type="radio" v-model="publishType" value="scheduled" />
+                        <span>定时发布</span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <div v-if="publishType === 'scheduled'" class="setting-row">
+                    <span class="setting-label">选择时间</span>
+                    <input 
+                      type="datetime-local" 
+                      v-model="scheduledTime"
+                      class="datetime-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Publish Buttons -->
+              <div class="publish-actions">
+                <button 
+                  class="publish-btn" 
+                  :disabled="!canPublish"
+                  @click="handlePublish"
+                >
+                  发布
+                </button>
+                <button class="save-draft-btn">暂存离开</button>
+              </div>
             </div>
-            <div class="spec-item">
-              <h3>视频分辨率</h3>
-              <p>推荐上传720P（1280*720）及以上视频</p>
-            </div>
-          </div>
+          </template>
         </template>
 
-        <!-- Video Edit Section (After upload) -->
-        <template v-else>
-          <div class="edit-form">
-            <!-- Video Info -->
-            <div class="video-info-section">
-              <div class="video-info-header">
-                <span class="file-name">{{ videoInfo?.name }}</span>
-                <button class="replace-btn" @click="replaceVideo">替换视频</button>
-              </div>
-              <div class="video-meta">
-                <span class="success-badge">✓ 上传成功</span>
-                <span>视频大小：{{ videoInfo?.size }}</span>
-                <span>视频时长：{{ videoInfo?.duration }}</span>
+        <!-- Image Upload Section -->
+        <template v-else-if="activeTab === 'image'">
+          <!-- Before upload -->
+          <template v-if="images.length === 0">
+            <div 
+              class="upload-area"
+              @drop="handleImageDrop"
+              @dragover="handleDragOver"
+              @click="triggerImageInput"
+            >
+              <div class="upload-content">
+                <div class="cloud-icon">
+                  <svg viewBox="0 0 24 24" width="64" height="64" fill="#e0e0e0">
+                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                  </svg>
+                </div>
+                <p class="upload-text">拖拽图片到此或点击上传（支持多张）</p>
+                <button class="upload-btn" @click.stop="triggerImageInput">上传图片</button>
               </div>
             </div>
 
-            <!-- Cover Section -->
-            <div class="section">
-              <h3 class="section-title">封面设置</h3>
-              <div class="cover-options">
-                <!-- Auto-captured cover -->
-                <div 
-                  class="cover-option" 
-                  :class="{ selected: coverSource === 'auto' }"
-                  @click="selectAutoCover"
-                >
-                  <img v-if="coverUrl" :src="coverUrl" alt="自动截取" class="cover-image" />
-                  <div v-else class="cover-placeholder">截取中...</div>
-                  <span class="cover-label">自动截取</span>
-                  <div v-if="coverSource === 'auto'" class="cover-check">✓</div>
-                </div>
-                
-                <!-- Manual upload cover -->
-                <div 
-                  class="cover-option" 
-                  :class="{ selected: coverSource === 'manual' && manualCoverUrl }"
-                  @click="selectManualCover"
-                >
-                  <img v-if="manualCoverUrl" :src="manualCoverUrl" alt="手动上传" class="cover-image" />
-                  <div v-else class="cover-placeholder upload-hint">
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="#999">
+            <div class="specs-grid">
+              <div class="spec-item">
+                <h3>图片数量</h3>
+                <p>支持1-9张图片，每张不超过10MB</p>
+              </div>
+              <div class="spec-item">
+                <h3>图片格式</h3>
+                <p>支持JPG、PNG、GIF等常见图片格式</p>
+              </div>
+              <div class="spec-item">
+                <h3>图片分辨率</h3>
+                <p>推荐使用高清图片，提升视觉效果</p>
+              </div>
+            </div>
+          </template>
+
+          <!-- After upload -->
+          <template v-else>
+            <div class="edit-form">
+              <!-- Image Preview Section -->
+              <div class="section">
+                <h3 class="section-title">图片预览</h3>
+                <div class="image-preview-grid">
+                  <div v-for="(url, index) in imageUrls" :key="index" class="image-preview-item">
+                    <img :src="url" :alt="`图片${index + 1}`" class="preview-image" />
+                    <button class="remove-image-btn" @click="removeImage(index)">×</button>
+                  </div>
+                  <div v-if="images.length < 9" class="image-preview-item add-more" @click="triggerImageInput">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="#999">
                       <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                     </svg>
-                    <span>上传封面</span>
+                    <span>添加更多</span>
                   </div>
-                  <span class="cover-label">{{ manualCoverUrl ? '手动上传' : '点击上传' }}</span>
-                  <div v-if="coverSource === 'manual' && manualCoverUrl" class="cover-check">✓</div>
+                </div>
+              </div>
+
+              <!-- Title -->
+              <div class="section">
+                <h3 class="section-title">标题 <span class="char-count">{{ title.length }}/20</span></h3>
+                <input 
+                  v-model="title"
+                  type="text" 
+                  class="title-input"
+                  placeholder="填写标题会有更多赞哦～"
+                  maxlength="20"
+                />
+              </div>
+
+              <!-- Content -->
+              <div class="section">
+                <h3 class="section-title">正文内容</h3>
+                <textarea 
+                  v-model="content"
+                  class="content-input"
+                  placeholder="输入正文描述，真诚有价值的分享予人温暖"
+                  rows="4"
+                ></textarea>
+              </div>
+
+              <!-- Settings Toggle -->
+              <div class="section">
+                <button class="settings-toggle" @click="showSettings = !showSettings">
+                  更多设置
+                  <span :class="{ 'rotate': showSettings }">▼</span>
+                </button>
+                
+                <div v-if="showSettings" class="settings-panel">
+                  <div class="setting-row">
+                    <span class="setting-label">发布时间</span>
+                    <div class="publish-options">
+                      <label class="radio-option">
+                        <input type="radio" v-model="publishType" value="immediate" />
+                        <span>立即发布</span>
+                      </label>
+                      <label class="radio-option">
+                        <input type="radio" v-model="publishType" value="scheduled" />
+                        <span>定时发布</span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <div v-if="publishType === 'scheduled'" class="setting-row">
+                    <span class="setting-label">选择时间</span>
+                    <input 
+                      type="datetime-local" 
+                      v-model="scheduledTime"
+                      class="datetime-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Publish Buttons -->
+              <div class="publish-actions">
+                <button 
+                  class="publish-btn" 
+                  :disabled="!canPublish"
+                  @click="handlePublish"
+                >
+                  发布
+                </button>
+                <button class="save-draft-btn">暂存离开</button>
+              </div>
+            </div>
+          </template>
+        </template>
+
+        <!-- Article Section -->
+        <template v-else-if="activeTab === 'article'">
+          <div class="edit-form">
+            <!-- Article Cover Section -->
+            <div class="section">
+              <h3 class="section-title">文章封面</h3>
+              <div class="article-cover-section">
+                <div v-if="!articleCoverUrl" class="cover-placeholder upload-hint" @click="triggerArticleCoverInput">
+                  <svg viewBox="0 0 24 24" width="48" height="48" fill="#999">
+                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                  </svg>
+                  <span>点击上传封面</span>
+                </div>
+                <div v-else class="article-cover-preview">
+                  <img :src="articleCoverUrl" alt="文章封面" class="article-cover-image" />
+                  <button class="remove-cover-btn" @click="articleCoverUrl = ''">删除封面</button>
                 </div>
               </div>
             </div>
@@ -362,9 +765,9 @@ const canPublish = computed(() => {
               <h3 class="section-title">正文内容</h3>
               <textarea 
                 v-model="content"
-                class="content-input"
-                placeholder="输入正文描述，真诚有价值的分享予人温暖"
-                rows="4"
+                class="content-input article-input"
+                placeholder="写下你的长文内容..."
+                rows="15"
               ></textarea>
             </div>
 
@@ -444,7 +847,7 @@ const canPublish = computed(() => {
   display: flex;
   align-items: center;
   gap: 32px;
-  background: white;
+  background: var(--white);
   padding: 16px 24px;
   border-radius: 4px 4px 0 0;
   border-bottom: 1px solid #f0f0f0;
@@ -472,13 +875,13 @@ const canPublish = computed(() => {
 
 /* Upload Area */
 .upload-area {
-  background-color: white;
+  background-color: var(--white);
   border-radius: 4px;
   height: 400px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px dashed #d9d9d9;
+  border: 2px dashed var(--border-color);
   margin-bottom: 32px;
   cursor: pointer;
   transition: border-color 0.3s;
@@ -886,14 +1289,14 @@ const canPublish = computed(() => {
 .phone-title {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   margin-bottom: 8px;
   line-height: 1.4;
 }
 
 .phone-text {
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
@@ -902,7 +1305,7 @@ const canPublish = computed(() => {
   align-items: center;
   gap: 10px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
 }
 
 .phone-avatar {
@@ -989,6 +1392,163 @@ const canPublish = computed(() => {
 .comment-icons {
   color: white;
   font-size: 18px;
+}
+
+/* Image Text Styles */
+.image-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.image-preview-item {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+.image-preview-item.add-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px dashed #d0d0d0;
+}
+
+.image-preview-item.add-more:hover {
+  background: #e8f0fe;
+  border-color: var(--primary-color);
+}
+
+.preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-image-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Article Styles */
+.article-cover-section {
+  margin-bottom: 16px;
+}
+
+.article-cover-preview {
+  position: relative;
+  width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.article-cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove-cover-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.remove-cover-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.content-input.article-input {
+  min-height: 300px;
+}
+/* Dark mode styles */
+[data-theme="dark"] .content-area {
+  background-color: var(--bg-color);
+}
+
+[data-theme="dark"] .edit-form {
+  background: var(--white);
+}
+
+[data-theme="dark"] .video-info-section {
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme="dark"] .tabs {
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme="dark"] .cover-image {
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .cover-placeholder {
+  border-color: var(--border-color);
+  background: var(--bg-color);
+}
+
+[data-theme="dark"] .title-input {
+  border-color: var(--border-color);
+  background: var(--bg-color);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .content-input {
+  border-color: var(--border-color);
+  background: var(--bg-color);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .datetime-input {
+  border-color: var(--border-color);
+  background: var(--bg-color);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .save-draft-btn {
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .settings-panel {
+  background: var(--bg-color);
+}
+
+[data-theme="dark"] .image-preview-item.add-more {
+  border-color: var(--border-color);
+  background: var(--bg-color);
+}
+
+[data-theme="dark"] .image-preview-item.add-more:hover {
+  background: rgba(255, 36, 66, 0.1);
 }
 </style>
 
