@@ -40,8 +40,8 @@ export class PostsController {
     }
 
     @Post(':postId/comments')
-    createComment(@Param('postId') postId: string, @Body() body: { userId: number; content: string }) {
-        return this.postsService.createComment(Number(postId), body.userId, body.content);
+    createComment(@Param('postId') postId: string, @Body() body: { userId: number; content: string; parent_id?: number }) {
+        return this.postsService.createComment(Number(postId), body.userId, body.content, body.parent_id);
     }
 
     @Delete('comments/:commentId')

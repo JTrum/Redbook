@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import TheSidebar from './components/TheSidebar.vue'
 import TheHeader from './components/TheHeader.vue'
 import CategoryTabs from './components/CategoryTabs.vue'
@@ -17,6 +17,28 @@ const pendingNavigation = ref(null) // Store intended navigation when login is r
 const selectedPost = ref(null)
 const showPostDetail = ref(false)
 const interactionOccurred = ref(false) // Track if user interacted with post (like/collect/comment)
+
+// Dark mode toggle
+const isDarkMode = ref(false)
+
+// Toggle dark mode function
+const toggleDarkMode = () => {
+  isDarkMode.value = !isDarkMode.value
+  localStorage.setItem('darkMode', isDarkMode.value.toString())
+  document.documentElement.setAttribute('data-theme', isDarkMode.value ? 'dark' : 'light')
+}
+
+// Load dark mode preference from localStorage on mount
+onMounted(() => {
+  const savedDarkMode = localStorage.getItem('darkMode')
+  if (savedDarkMode !== null) {
+    isDarkMode.value = savedDarkMode === 'true'
+  } else {
+    // Check system preference
+    isDarkMode.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+  document.documentElement.setAttribute('data-theme', isDarkMode.value ? 'dark' : 'light')
+})
 
 const handleOpenDetail = (post) => {
   selectedPost.value = { ...post }
@@ -98,7 +120,7 @@ const posts = ref([])
 
 const fetchPosts = async () => {
   try {
-    const response = await fetch('http://localhost:3000/posts')
+    const response = await fetch('/api/posts')
     const data = await response.json()
     
     // Map backend data to frontend structure
@@ -109,14 +131,14 @@ const fetchPosts = async () => {
       
       if (currentUser.value) {
         try {
-          const likeRes = await fetch(`http://localhost:3000/posts/${post.id}/like/status?userId=${currentUser.value.id}`)
+          const likeRes = await fetch(`/api/posts/${post.id}/like/status?userId=${currentUser.value.id}`)
           likeStatus = await likeRes.json()
         } catch (e) {
           console.warn('Failed to fetch like status:', e)
         }
         
         try {
-          const collectRes = await fetch(`http://localhost:3000/posts/${post.id}/collect/status?userId=${currentUser.value.id}`)
+          const collectRes = await fetch(`/api/posts/${post.id}/collect/status?userId=${currentUser.value.id}`)
           collectStatus = await collectRes.json()
         } catch (e) {
           console.warn('Failed to fetch collect status:', e)
@@ -129,12 +151,13 @@ const fetchPosts = async () => {
         description: post.description || '',
         // For videos, use cover_url if available, otherwise use a placeholder
         image: post.type === 'video' 
-          ? (post.cover_url || 'http://localhost:3000/uploads/video_cover_placeholder.svg') 
+          ? (post.cover_url || '/api/uploads/video_cover_placeholder.svg') 
           : post.url, 
         videoUrl: post.type === 'video' ? post.url : null,
         type: post.type,
         user: post.author,
         avatar: post.author_avatar,
+        author_id: post.author_id,
         likes: likeStatus.likeCount,
         likeCount: likeStatus.likeCount,
         likeStatus: likeStatus.liked,
@@ -157,17 +180,24 @@ fetchPosts()
     <TheSidebar 
       :active-item="currentView" 
       :current-user="currentUser"
+      :is-dark-mode="isDarkMode"
       @change="handleNavChange" 
       @show-login="handleShowLogin"
       @logout="handleLogout"
+      @toggle-dark-mode="toggleDarkMode"
     />
     <div class="main-content">
-      <TheHeader v-if="currentView !== 'publish' && currentView !== 'profile'" :current-user="currentUser" />
+      <TheHeader 
+        v-if="currentView !== 'publish' && currentView !== 'profile'" 
+        :current-user="currentUser" 
+        :is-dark-mode="isDarkMode"
+        @toggle-dark-mode="toggleDarkMode"
+      />
       
       <template v-if="currentView === 'discovery'">
         <CategoryTabs />
         <main class="content-scroll-area">
-          <MasonryGrid :items="posts" @open-detail="handleOpenDetail" />
+          <MasonryGrid :items="posts" :current-user="currentUser" @open-detail="handleOpenDetail" />
         </main>
       </template>
 

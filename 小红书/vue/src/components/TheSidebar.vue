@@ -9,10 +9,14 @@ const props = defineProps({
   currentUser: {
     type: Object,
     default: null
+  },
+  isDarkMode: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['change', 'show-login', 'logout'])
+const emit = defineEmits(['change', 'show-login', 'logout', 'toggle-dark-mode'])
 
 const showMoreMenu = ref(false)
 
@@ -115,6 +119,9 @@ const handleLogout = () => {
       <!-- Dropdown menu -->
       <div v-if="showMoreMenu" class="more-dropdown">
         <a href="#" class="dropdown-item">设置</a>
+        <a href="#" class="dropdown-item" @click.prevent="$emit('toggle-dark-mode')">
+          {{ isDarkMode ? '切换至浅色模式' : '切换至深色模式' }}
+        </a>
         <a v-if="currentUser" href="#" class="dropdown-item" @click.prevent="handleLogout">退出登录</a>
       </div>
     </div>
@@ -174,7 +181,7 @@ const handleLogout = () => {
 }
 
 .nav-item.active {
-  background-color: #ff24420d; /* very light red */
+  background-color: rgba(var(--primary-color-rgb), 0.05); /* very light red */
   color: var(--primary-color);
   font-weight: 600;
 }
@@ -222,15 +229,15 @@ const handleLogout = () => {
   font-weight: 600;
   font-size: 16px;
   margin-bottom: 12px;
-  box-shadow: 0 4px 12px rgba(255, 36, 66, 0.2);
+  box-shadow: 0 4px 12px rgba(var(--primary-color-rgb), 0.2);
 }
 
 .promo-card {
-  background-color: white;
-  border: 1px solid #f0f0f0;
+  background-color: var(--white);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
 }
 
 .promo-title {
@@ -295,9 +302,9 @@ const handleLogout = () => {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: linear-gradient(135deg, #fff5f6 0%, #fff 100%);
+  background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.05) 0%, var(--white) 100%);
   border-radius: var(--radius-lg);
-  border: 1px solid #ffe5e8;
+  border: 1px solid rgba(var(--primary-color-rgb), 0.2);
   margin-bottom: 12px;
 }
 
@@ -306,7 +313,7 @@ const handleLogout = () => {
   height: 48px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #ff2442;
+  border: 2px solid var(--primary-color);
 }
 
 .user-details {
@@ -318,7 +325,7 @@ const handleLogout = () => {
 .user-nickname {
   font-size: 15px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -326,23 +333,23 @@ const handleLogout = () => {
 
 .user-id {
   font-size: 12px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .logout-btn {
   width: 100%;
   padding: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 24px;
   font-size: 14px;
-  color: #666;
-  background: white;
+  color: var(--text-secondary);
+  background: var(--white);
   transition: all 0.2s;
 }
 
 .logout-btn:hover {
-  background: #f5f5f5;
-  border-color: #ccc;
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(var(--primary-color-rgb), 0.2);
 }
 
 /* Nav avatar for "我" item */
@@ -367,9 +374,9 @@ const handleLogout = () => {
   bottom: 100%;
   left: 8px;
   right: 8px;
-  background: white;
+  background: var(--white);
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-md);
   padding: 8px 0;
   margin-bottom: 8px;
   z-index: 200;
@@ -384,7 +391,7 @@ const handleLogout = () => {
 }
 
 .dropdown-item:hover {
-  background: #f5f5f5;
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* Overlay to close dropdown when clicking outside */

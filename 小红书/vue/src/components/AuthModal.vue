@@ -38,7 +38,7 @@ const handleSubmit = async () => {
       ? { username: username.value, password: password.value }
       : { username: username.value, password: password.value, nickname: nickname.value || username.value }
     
-    const response = await fetch(`http://localhost:3000${endpoint}`, {
+    const response = await fetch(`/api${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -160,7 +160,7 @@ const handleSubmit = async () => {
 }
 
 .auth-modal {
-  background: white;
+  background: var(--white);
   border-radius: 16px;
   width: 400px;
   max-width: 90vw;
@@ -196,8 +196,8 @@ const handleSubmit = async () => {
 }
 
 .close-btn:hover {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--bg-color);
+  color: var(--text-primary);
 }
 
 .close-btn svg {
@@ -214,11 +214,11 @@ const handleSubmit = async () => {
   font-size: 24px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .subtitle {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -237,12 +237,12 @@ const handleSubmit = async () => {
 .form-group label {
   font-size: 14px;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .form-group input {
   padding: 12px 16px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 14px;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -250,26 +250,26 @@ const handleSubmit = async () => {
 
 .form-group input:focus {
   outline: none;
-  border-color: #ff2442;
-  box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
 }
 
 .error-text {
-  color: #ff2442;
+  color: var(--primary-color);
   font-size: 12px;
 }
 
 .error-message {
-  color: #ff2442;
+  color: var(--primary-color);
   font-size: 14px;
   text-align: center;
   padding: 8px;
-  background: rgba(255, 36, 66, 0.1);
+  background: rgba(var(--primary-color-rgb), 0.1);
   border-radius: 8px;
 }
 
 .submit-btn {
-  background: #ff2442;
+  background: var(--primary-color);
   color: white;
   padding: 14px;
   border-radius: 24px;
@@ -280,7 +280,7 @@ const handleSubmit = async () => {
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: #e61e3a;
+  background: rgba(var(--primary-color-rgb), 0.9);
   transform: translateY(-1px);
 }
 
@@ -293,11 +293,11 @@ const handleSubmit = async () => {
   text-align: center;
   margin-top: 24px;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .switch-btn {
-  color: #ff2442;
+  color: var(--primary-color);
   font-weight: 500;
   margin-left: 4px;
 }

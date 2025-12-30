@@ -55,7 +55,7 @@ const tabs = [
 }
 
 .tab-btn.active {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: rgba(var(--primary-color-rgb), 0.05);
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -65,7 +65,7 @@ const tabs = [
 }
 
 .notification-content {
-  background-color: white; /* Often notification lists have white bg, but user image shows empty white or light gray area */
+  background-color: var(--white); /* Often notification lists have white bg, but user image shows empty white or light gray area */
   min-height: 400px;
   border-radius: 8px;
 }

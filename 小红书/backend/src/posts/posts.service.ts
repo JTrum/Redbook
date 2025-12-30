@@ -37,7 +37,8 @@ export class PostsService {
                 description: p.description,
                 created_at: p.created_at,
                 author: author?.nickname || 'Anonymous',
-                author_avatar: author?.avatar || 'https://i.pravatar.cc/150?u=anonymous'
+                author_avatar: author?.avatar || 'https://i.pravatar.cc/150?u=anonymous',
+                author_id: p.author_id
             };
         });
     }
@@ -46,8 +47,8 @@ export class PostsService {
         return database.getCommentsByPostId(postId);
     }
 
-    createComment(postId: number, userId: number, content: string) {
-        return database.createComment(postId, userId, content);
+    createComment(postId: number, userId: number, content: string, parent_id?: number) {
+        return database.createComment(postId, userId, content, parent_id);
     }
 
     deleteComment(commentId: number, userId: number) {
